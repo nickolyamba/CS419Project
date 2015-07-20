@@ -19,6 +19,7 @@ class MyGrid(npyscreen.GridColTitles):
 		   
 class selectTableForm(npyscreen.Form):
 	def afterEditing(self):
+			self.parentApp.getForm('Menu').value = self.table.get_selected_objects()
 			self.parentApp.setNextForm('Menu')
 	
 	def create(self):
@@ -31,8 +32,6 @@ class selectTableForm(npyscreen.Form):
 																		)
 		tableName = self.table.value
 		#self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.exit_application
-		
-		return 
 		
 	def exit_application(self):
 		curses.beep()
@@ -49,6 +48,7 @@ class tableMenuForm(npyscreen.Form):
 		#self.parentApp.setNextFormPrevious()
 	
 	def create(self):
+		self.value = None
 		self.rowNum = self.add(npyscreen.TitleText, name='Rows: ', value = str(rowNumber))
 		#rowNumber = int(str(self.rowNum.value))
 		self.action = self.add(npyscreen.TitleSelectOne, max_height=5,
@@ -71,6 +71,12 @@ class tableMenuForm(npyscreen.Form):
 				else:
 					row.append("FAIL")
 			self.myGrid.values.append(row)
+	
+	def beforeEditing(self):
+		if self.value:
+			self.name = "Table id : %s" % self.value
+		else:
+			self.name = "New Record"
 			
 		#return self.action.value;
 		#self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.exit_application
