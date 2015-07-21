@@ -2,6 +2,7 @@
 import npyscreen, curses
 import random
 
+# $mysqli = new mysqli("oniddb.cws.oregonstate.edu", "goncharn-db", $myPassword, "goncharn-db");
 rowNumber = 5
 tableName = ''
 
@@ -16,39 +17,40 @@ class MyGrid(npyscreen.GridColTitles):
            actual_cell.color = 'GOOD'
         else:
            actual_cell.color = 'DEFAULT'
-		   
-class selectTableForm(npyscreen.Form):
+
+
+class SelectTableForm(npyscreen.Form):
 	def afterEditing(self):
-			self.parentApp.getForm('Menu').value = self.table.get_selected_objects()
+			selectedTableName = self.table.get_selected_objects()[0]
+			self.parentApp.getForm('Menu').selectTable = selectedTableName
 			self.parentApp.setNextForm('Menu')
 	
 	def create(self):
 		self.table = self.add(npyscreen.TitleSelectOne, max_height=3,
-																		name='Select Table',
-																		values = ['Table 1', 'Table 2', 'Table 3'],
-																		scroll_exit = True
-																		 # Let the user move out of the widget by pressing 
-																		# the down arrow instead of tab.  Try it without to see the difference.
-																		)
-		tableName = self.table.value
-		#self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.exit_application
-		
-	def exit_application(self):
-		curses.beep()
-		self.parentApp.setNextForm(None)
-		self.editing = False
+													name='Select Table',
+													values = ['Table 1', 'Table 2', 'Table 3'],
+													scroll_exit = True)
 
-
-class tableMenuForm(npyscreen.Form):
+													
+class TableMenuForm(npyscreen.Form):
 	def afterEditing(self):
-		if self.action.value == 'Add Row':
-			self.parentApp.setNextFormPrevious()
+		selection = self.action.get_selected_objects()[0]
+		if selection == 'Add Row':
+			self.parentApp.setNextForm('Add Row')
+		elif selection == 'Edit Row':
+			self.parentApp.setNextForm('Edit Row')
+		elif selection == 'Delete Row':
+			self.parentApp.setNextForm('Delete Row')
+		elif selection == 'Next Page':
+			self.parentApp.setNextForm('Next Page')
+		elif selection == 'Prev Page':
+			self.parentApp.setNextForm('Prev Page')
 		else:
-			self.parentApp.setNextForm(None)
+			self.parentApp.setNextForm(None)	
 		#self.parentApp.setNextFormPrevious()
 	
 	def create(self):
-		self.value = None
+		self.selectTable = None
 		self.rowNum = self.add(npyscreen.TitleText, name='Rows: ', value = str(rowNumber))
 		#rowNumber = int(str(self.rowNum.value))
 		self.action = self.add(npyscreen.TitleSelectOne, max_height=5,
@@ -73,8 +75,8 @@ class tableMenuForm(npyscreen.Form):
 			self.myGrid.values.append(row)
 	
 	def beforeEditing(self):
-		if self.value:
-			self.name = "Table id : %s" % self.value
+		if self.selectTable:
+			self.name = "%s" % self.selectTable
 		else:
 			self.name = "New Record"
 			
@@ -86,12 +88,25 @@ class tableMenuForm(npyscreen.Form):
 		self.parentApp.setNextForm(None)
 		self.editing = False
 
+
+class AddRowForm(npyscreen.Form):
+	def afterEditing(self):
+		self.parentApp.setNextFormPrevious()
+	
+	def create(self):
+		self.value = None
+		self.wgLastName   = self.add(npyscreen.TitleText, name = "Last Name:",)
+		self.wgOtherNames = self.add(npyscreen.TitleText, name = "Other Names:")
+		self.wgEmail      = self.add(npyscreen.TitleText, name = "Email:")
+
+
 class MyApplication(npyscreen.NPSAppManaged):
     def onStart(self):
-		selTableForm = self.addForm('MAIN', selectTableForm, name='Select Table')
-		tabMenuForm = self.addForm('Menu', tableMenuForm, name='Table Menu')
+		selTableF = self.addForm('MAIN', SelectTableForm, name='Select Table')
+		tabMenuF = self.addForm('Menu', TableMenuForm, name='Table Menu')
+		addRowF = self.addForm('Add Row', AddRowForm, name='Add Row')
 		
-		return selTableForm.table.value
+		return selTableF.table.value
 
 if __name__ == '__main__':
     TestApp = MyApplication().run()
