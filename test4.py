@@ -1,4 +1,13 @@
 #!/usr/bin/python
+
+'''**************************************
+# Name: Nikolay Goncharenko, Rory Bresnahan
+# Email: goncharn@onid.oregonstate.edu
+# Class: CS419 - Capstone Project
+# Assignment: Python Ncurses UI for 
+# MySQL/PostgreSQL Database Management
+**************************************'''
+
 import npyscreen, curses
 import random
 import psycopg2
@@ -6,6 +15,11 @@ import psycopg2
 # $mysqli = new mysqli("oniddb.cws.oregonstate.edu", "goncharn-db", $myPassword, "goncharn-db");
 rowNumber = 5
 
+'''**************************************************
+* Class Database inherits object class
+*
+* Purpose:  Connect to the database and query it
+**************************************************'''
 class Database(object):
 	def list_all_tables(self):
 		try:
@@ -13,6 +27,7 @@ class Database(object):
 		except:
 			print "I am unable to connect to the database"
 		
+		# fetch list of the tables in the database
 		cursor = conn.cursor()
 		cursor.execute("SELECT table_name FROM information_schema.tables \
 							WHERE \
@@ -64,6 +79,12 @@ class Database(object):
         return records[0]
 '''
 
+'''**************************************************
+   Class MyGrid inherits GridColTitles class
+   
+   Purpose:  display data from database as greed,
+    visualazing a table in database
+**************************************************'''
 class MyGrid(npyscreen.GridColTitles):
     # You need to override custom_print_cell to manipulate how
     # a cell is printed. In this example we change the color of the
@@ -75,8 +96,14 @@ class MyGrid(npyscreen.GridColTitles):
            actual_cell.color = 'GOOD'
         else:
            actual_cell.color = 'DEFAULT'
-		   
 
+
+'''**************************************************
+   Class TableList inherits MultiLineAction class
+   
+   Purpose:  display list of tables as list and define an action
+   when one of the tables is selected 
+**************************************************'''
 class TableList(npyscreen.MultiLineAction):
     def __init__(self, *args, **keywords):
         super(TableList, self).__init__(*args, **keywords)
@@ -90,32 +117,37 @@ class TableList(npyscreen.MultiLineAction):
 		selectedTableName = act_on_this[0]
 		self.parent.parentApp.getForm('Menu').selectTable = selectedTableName
 		self.parent.parentApp.switchForm('Menu')
+
 		
-
+'''**************************************************
+   Class TableListDisplay inherits FormMutt class
+   
+   Purpose:  Container for displaying of the dynamic list
+**************************************************'''
 class TableListDisplay(npyscreen.FormMutt):
-    MAIN_WIDGET_CLASS = TableList
-    def beforeEditing(self):
-        self.update_list()
-    
-    def update_list(self):
-        self.wMain.values = self.parentApp.myDatabase.list_all_tables()
-        self.wMain.display()
-
-
-class SelectTableForm(npyscreen.Form):
-	def afterEditing(self):
-			selectedTableName = self.table.get_selected_objects()[0]
-			self.parentApp.getForm('Menu').selectTable = selectedTableName
-			self.parentApp.setNextForm('Menu')
 	
-	def create(self):
-		self.table = self.add(npyscreen.TitleSelectOne, max_height=3,
-													name='Select Table',
-													values = ['Table 1', 'Table 2', 'Table 3'],
-													scroll_exit = True)
+	# type of widget to be displayed
+	MAIN_WIDGET_CLASS = TableList
+	MAIN_WIDGET_CLASS_START_LINE = 2
+	STATUS_WIDGET_X_OFFSET = 5
+	
+	def beforeEditing(self):
+		self.update_list()
+	
+	def update_list(self):
+		self.wStatus1.value =  ' Select Table From List   '
+		self.wMain.values = self.parentApp.myDatabase.list_all_tables()
+		self.wMain.relx= 3
+		self.wMain.display()
 
-													
-class TableMenuForm(npyscreen.Form):
+
+'''**************************************************
+   Class TableMenuForm inherits ActionForm class
+   
+   Purpose:  Displays main table menu and grid
+**************************************************'''													
+class TableMenuForm(npyscreen.ActionForm):
+	# set screen redirection based on user choice
 	def afterEditing(self):
 		selection = self.action.get_selected_objects()[0]
 		if selection == 'Add Row':
@@ -132,10 +164,10 @@ class TableMenuForm(npyscreen.Form):
 			self.parentApp.setNextForm(None)
 		#self.parentApp.setNextFormPrevious()
 	
+	# Create Widgets
 	def create(self):
 		self.selectTable = None
 		self.rowNum = self.add(npyscreen.TitleText, name='Rows: ', value = str(rowNumber))
-		#rowNumber = int(str(self.rowNum.value))
 		self.action = self.add(npyscreen.TitleSelectOne, max_height=5,
 																		name='Select Action',
 																		values = ['Next Page', 'Prev Page', 'Add Row', 'Edit Row', 'Delete Row'],
@@ -145,6 +177,7 @@ class TableMenuForm(npyscreen.Form):
 																		)
 		# move one line down from  the previous form
 		self.nextrely += 1
+		# Create MyGrid Widget object
 		self.myGrid =  self.add(MyGrid, col_titles = ['1','2','3','4'])
 		# populate the grid
 		self.myGrid.values = []
@@ -172,10 +205,15 @@ class TableMenuForm(npyscreen.Form):
 		self.editing = False
 
 
-class AddRowForm(npyscreen.Form):
+'''*********************************************************
+   Class AddRowForm inherits ActionForm class
+   
+   Purpose:  Reponsible for adding a new row to the given table
+*********************************************************'''
+class AddRowForm(npyscreen.ActionForm):
 	def afterEditing(self):
 		self.parentApp.setNextFormPrevious()
-	
+	# It's just prototype, non-dynamic
 	def create(self):
 		self.value = None
 		self.wgLastName   = self.add(npyscreen.TitleText, name = "Last Name:",)
@@ -183,6 +221,12 @@ class AddRowForm(npyscreen.Form):
 		self.wgEmail      = self.add(npyscreen.TitleText, name = "Email:")
 
 
+'''**************************************************
+   Class MyApplication inherits NPSAppManaged class
+   
+   Purpose:  Manages  flow between application screens.
+	It's a main app environment
+**************************************************'''
 class MyApplication(npyscreen.NPSAppManaged):
     def onStart(self):
 		self.myDatabase = Database()
