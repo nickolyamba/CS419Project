@@ -1,10 +1,68 @@
 #!/usr/bin/python
 import npyscreen, curses
 import random
+import psycopg2
 
 # $mysqli = new mysqli("oniddb.cws.oregonstate.edu", "goncharn-db", $myPassword, "goncharn-db");
 rowNumber = 5
-tableName = ''
+
+class Database(object):
+	def list_all_tables(self):
+		try:
+			conn = psycopg2.connect("dbname='muepyavy' user='muepyavy' host='babar.elephantsql.com' password='EQoh7fJJNxK-4ag4SNUIYwzzWqTVzj-8'")
+		except:
+			print "I am unable to connect to the database"
+		
+		cursor = conn.cursor()
+		cursor.execute("SELECT table_name FROM information_schema.tables \
+							WHERE \
+								table_type = 'BASE TABLE' AND table_schema = 'public' \
+							ORDER BY table_type, table_name")
+		tables = cursor.fetchall()
+		cursor.close()
+		return tables
+	
+'''
+    def add_record(self, last_name = '', other_names='', email_address=''):
+        db = sqlite3.connect(self.dbfilename)
+        c = db.cursor()
+        c.execute('INSERT INTO records(last_name, other_names, email_address) \
+                    VALUES(?,?,?)', (last_name, other_names, email_address))
+        db.commit()
+        c.close()
+    
+    def update_record(self, record_id, last_name = '', other_names='', email_address=''):
+        db = sqlite3.connect(self.dbfilename)
+        c = db.cursor()
+        c.execute('UPDATE records set last_name=?, other_names=?, email_address=? \
+                    WHERE record_internal_id=?', (last_name, other_names, email_address, \
+                                                        record_id))
+        db.commit()
+        c.close()    
+
+    def delete_record(self, record_id):
+        db = sqlite3.connect(self.dbfilename)
+        c = db.cursor()
+        c.execute('DELETE FROM records where record_internal_id=?', (record_id,))
+        db.commit()
+        c.close()    
+    
+    def list_all_records(self, ):
+        db = sqlite3.connect(self.dbfilename)
+        c = db.cursor()
+        c.execute('SELECT * from records')
+        records = c.fetchall()
+        c.close()
+        return records
+    
+    def get_record(self, record_id):
+        db = sqlite3.connect(self.dbfilename)
+        c = db.cursor()
+        c.execute('SELECT * from records WHERE record_internal_id=?', (record_id,))
+        records = c.fetchall()
+        c.close()
+        return records[0]
+'''
 
 class MyGrid(npyscreen.GridColTitles):
     # You need to override custom_print_cell to manipulate how
@@ -17,6 +75,31 @@ class MyGrid(npyscreen.GridColTitles):
            actual_cell.color = 'GOOD'
         else:
            actual_cell.color = 'DEFAULT'
+		   
+
+class TableList(npyscreen.MultiLineAction):
+    def __init__(self, *args, **keywords):
+        super(TableList, self).__init__(*args, **keywords)
+
+    def display_value(self, value):
+        return "%s" % (value[0])
+    
+    def actionHighlighted(self, act_on_this, keypress):
+        #self.parent.parentApp.getForm('EDITRECORDFM').value = act_on_this[0]
+        #parent.parentApp.switchForm('EDITRECORDFM')
+		selectedTableName = act_on_this[0]
+		self.parent.parentApp.getForm('Menu').selectTable = selectedTableName
+		self.parent.parentApp.switchForm('Menu')
+		
+
+class TableListDisplay(npyscreen.FormMutt):
+    MAIN_WIDGET_CLASS = TableList
+    def beforeEditing(self):
+        self.update_list()
+    
+    def update_list(self):
+        self.wMain.values = self.parentApp.myDatabase.list_all_tables()
+        self.wMain.display()
 
 
 class SelectTableForm(npyscreen.Form):
@@ -46,7 +129,7 @@ class TableMenuForm(npyscreen.Form):
 		elif selection == 'Prev Page':
 			self.parentApp.setNextForm('Prev Page')
 		else:
-			self.parentApp.setNextForm(None)	
+			self.parentApp.setNextForm(None)
 		#self.parentApp.setNextFormPrevious()
 	
 	def create(self):
@@ -102,11 +185,10 @@ class AddRowForm(npyscreen.Form):
 
 class MyApplication(npyscreen.NPSAppManaged):
     def onStart(self):
-		selTableF = self.addForm('MAIN', SelectTableForm, name='Select Table')
+		self.myDatabase = Database()
+		selTableF = self.addForm('MAIN', TableListDisplay, name='Select Table')
 		tabMenuF = self.addForm('Menu', TableMenuForm, name='Table Menu')
 		addRowF = self.addForm('Add Row', AddRowForm, name='Add Row')
-		
-		return selTableF.table.value
 
 if __name__ == '__main__':
     TestApp = MyApplication().run()
