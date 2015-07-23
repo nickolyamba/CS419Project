@@ -14,7 +14,7 @@ import psycopg2
 import sys
 
 # $mysqli = new mysqli("oniddb.cws.oregonstate.edu", "goncharn-db", $myPassword, "goncharn-db");
-rowNumber = 5
+rowNumber = 3
 
 '''**************************************************
 * Class Database inherits object class
@@ -34,29 +34,35 @@ class Database(object):
 		
 	# returns list of all tables in the database	
 	def list_all_tables(self):
-		cursor = self.conn.cursor()
-		cursor.execute("SELECT table_name FROM information_schema.tables \
+		cur = self.conn.cursor()
+		cur.execute("SELECT table_name FROM information_schema.tables \
 							WHERE \
 								table_type = 'BASE TABLE' AND table_schema = 'public' \
 							ORDER BY table_type, table_name")
-		tables = cursor.fetchall()
-		cursor.close()
+		tables = cur.fetchall()
+		cur.close()
 		return tables
 		
 	# returns list of all column names in the table	
 	def list_columns(self, table_name):
 		columns_list = []
-		cursor = self.conn.cursor()
-		cursor.execute("SELECT column_name from information_schema.columns \
-										WHERE table_name='" +str(table_name )+ "';")
-		columns_tuple = cursor.fetchall()
-		cursor.close()
+		cur = self.conn.cursor()
+		cur.execute("SELECT column_name from information_schema.columns \
+										WHERE table_name='" + str(table_name) + "';")
+		columns_tuple = cur.fetchall()
+		cur.close()
 		# traverese tuple of tuples to list of strings
 		for col in columns_tuple:
 			col = list(col)
 			col[0] = col[0].strip("(),'")
 			columns_list.append(col[0])
 		return columns_list
+		
+	def list_records(self, table_name, rowNumber):
+		cur = self.conn.cursor()
+		cur.execute("SELECT * from " + table_name + " LIMIT " + rowNumber + ";")
+		rows = cur.fetchall()
+		return rows
 	
 	def closeConn(self):
 		self.conn.close()
@@ -136,7 +142,7 @@ class TableList(npyscreen.MultiLineAction):
     
     def actionHighlighted(self, act_on_this, keypress):
 		selectedTableName = act_on_this[0]
-		self.parent.parentApp.tabMenuF.tableName.value = selectedTableName # experimental line
+		self.parent.parentApp.tabMenuF.tableName = selectedTableName # experimental line
 		self.parent.parentApp.getForm('Menu').selectTable = selectedTableName
 		self.parent.parentApp.switchForm('Menu')
 		
@@ -200,8 +206,8 @@ class TableMenuForm(npyscreen.ActionForm):
 	def create(self):
 		#self.selectTable = None
 		self.rowNum = self.add(npyscreen.TitleText, name='Rows: ', value = str(rowNumber))
-		self.tableName = self.add(npyscreen.TitleText, name='Table Name: ')
-		self.name = self.add(npyscreen.TitleText, name='Table Name2: ', value = str(self.tableName))
+		#self.tableName = self.add(npyscreen.TitleText, name='Table Name: ')
+		#self.tableName2 = self.add(npyscreen.TitleText, name='Table Name2: ', value = str(self.tableName))
 		self.action = self.add(npyscreen.TitleSelectOne, max_height=5,
 																		name='Select Action',
 																		values = ['Next Page', 'Prev Page', 'Add Row', 'Edit Row', 'Delete Row'],
@@ -211,33 +217,25 @@ class TableMenuForm(npyscreen.ActionForm):
 																		)
 		# move one line down from  the previous form
 		self.nextrely += 1
-		
-		# Create MyGrid Widget object
-		# fetch columns names into columns_list
-		self.columns_list = self.parentApp.myDatabase.list_columns(self.tableName.value)
-		self.myGrid =  self.add(MyGrid, col_titles = self.columns_list)
-		
-		# populate the grid
-		self.myGrid.values = []
-		for x in range(rowNumber):
-			row = []
-			for y in range(5):
-				if bool(random.getrandbits(1)):
-					row.append("PASS")
-				else:
-					row.append("FAIL")
-			self.myGrid.values.append(row)
-	
+
 	def beforeEditing(self):
+		# if were able to set value for self.selectTable
 		if self.selectTable:
-			#global tableName
-			#tableName = self.selectTable
-			#self.columns_list = self.parentApp.myDatabase.list_columns(self.selectTable)
 			self.name = "Table '%s'" % self.selectTable
-			#self.name = self.columns_list
-			#self.name = self.parentApp.myDatabase.list_columns("company")
+
+			# Create MyGrid Widget object
+			# fetch columns names into columns_list
+			self.columns_list = self.parentApp.myDatabase.list_columns(self.selectTable)
+			self.myGrid =  self.add(MyGrid, col_titles = self.columns_list)
+			
+			# populate the grid
+			self.myGrid.values = []
+			self.rows = self.parentApp.myDatabase.list_records(self.selectTable, str(rowNumber))
+			for row in self.rows:
+				self.myGrid.values.append(row)
 		else:
-			self.name = "New Record"
+			self.name = "Error transfering data from Screen #1 to #2!"
+		
 		self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.exit_application
 		
 	def exit_application(self):
