@@ -1,4 +1,8 @@
-﻿####################### List All Tables ######################
+﻿####################### List All Columns ######################
+SELECT column_name from information_schema.columns 
+WHERE table_name='company';
+
+####################### List All Tables ######################
 SELECT table_name 
 FROM information_schema.tables 
 WHERE table_type = 'BASE TABLE' 

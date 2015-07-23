@@ -11,6 +11,7 @@
 import npyscreen, curses
 import random
 import psycopg2
+import sys
 
 # $mysqli = new mysqli("oniddb.cws.oregonstate.edu", "goncharn-db", $myPassword, "goncharn-db");
 rowNumber = 5
@@ -21,14 +22,19 @@ rowNumber = 5
 * Purpose:  Connect to the database and query it
 **************************************************'''
 class Database(object):
-	def list_all_tables(self):
+	def __init__ (self):
 		try:
-			conn = psycopg2.connect("dbname='muepyavy' user='muepyavy' host='babar.elephantsql.com' password='EQoh7fJJNxK-4ag4SNUIYwzzWqTVzj-8'")
-		except:
-			print "I am unable to connect to the database"
+			self.conn = psycopg2.connect("dbname='muepyavy' user='muepyavy' host='babar.elephantsql.com' password='EQoh7fJJNxK-4ag4SNUIYwzzWqTVzj-8'")
+		except psycopg2.DatabaseError, e:
+			if self.conn:
+				self.conn.rollback()
+			print 'Error %s' % e
+			sys.exit(1)
+		#return  conn;
 		
-		# fetch list of the tables in the database
-		cursor = conn.cursor()
+	# returns list of all tables in the database	
+	def list_all_tables(self):
+		cursor = self.conn.cursor()
 		cursor.execute("SELECT table_name FROM information_schema.tables \
 							WHERE \
 								table_type = 'BASE TABLE' AND table_schema = 'public' \
@@ -36,7 +42,24 @@ class Database(object):
 		tables = cursor.fetchall()
 		cursor.close()
 		return tables
+		
+	# returns list of all column names in the table	
+	def list_columns(self, table_name):
+		columns_list = []
+		cursor = self.conn.cursor()
+		cursor.execute("SELECT column_name from information_schema.columns \
+										WHERE table_name='" +str(table_name )+ "';")
+		columns_tuple = cursor.fetchall()
+		cursor.close()
+		# traverese tuple of tuples to list of strings
+		for col in columns_tuple:
+			col = list(col)
+			col[0] = col[0].strip("(),'")
+			columns_list.append(col[0])
+		return columns_list
 	
+	def closeConn(self):
+		self.conn.close()
 '''
     def add_record(self, last_name = '', other_names='', email_address=''):
         db = sqlite3.connect(self.dbfilename)
@@ -112,11 +135,13 @@ class TableList(npyscreen.MultiLineAction):
         return "%s" % (value[0])
     
     def actionHighlighted(self, act_on_this, keypress):
-        #self.parent.parentApp.getForm('EDITRECORDFM').value = act_on_this[0]
-        #parent.parentApp.switchForm('EDITRECORDFM')
 		selectedTableName = act_on_this[0]
+		self.parent.parentApp.tabMenuF.tableName.value = selectedTableName # experimental line
 		self.parent.parentApp.getForm('Menu').selectTable = selectedTableName
 		self.parent.parentApp.switchForm('Menu')
+		
+		
+		
 
 		
 '''**************************************************
@@ -148,26 +173,35 @@ class TableListDisplay(npyscreen.FormMutt):
 **************************************************'''													
 class TableMenuForm(npyscreen.ActionForm):
 	# set screen redirection based on user choice
+	#selectTable = None
+	#columns_list = []
+	isExit = False
+	
 	def afterEditing(self):
-		selection = self.action.get_selected_objects()[0]
-		if selection == 'Add Row':
-			self.parentApp.setNextForm('Add Row')
-		elif selection == 'Edit Row':
-			self.parentApp.setNextForm('Edit Row')
-		elif selection == 'Delete Row':
-			self.parentApp.setNextForm('Delete Row')
-		elif selection == 'Next Page':
-			self.parentApp.setNextForm('Next Page')
-		elif selection == 'Prev Page':
-			self.parentApp.setNextForm('Prev Page')
+		if self.isExit == True:
+			self.parentApp.switchForm(None)
 		else:
-			self.parentApp.setNextForm(None)
-		#self.parentApp.setNextFormPrevious()
+			selection = self.action.get_selected_objects()[0]
+			if selection == 'Add Row':
+				self.parentApp.setNextForm('Add Row')
+			elif selection == 'Edit Row':
+				self.parentApp.setNextForm('Edit Row')
+			elif selection == 'Delete Row':
+				self.parentApp.setNextForm('Delete Row')
+			elif selection == 'Next Page':
+				self.parentApp.setNextForm('Next Page')
+			elif selection == 'Prev Page':
+				self.parentApp.setNextForm('Prev Page')
+			else:
+				self.parentApp.switchForm(None)
+			#self.parentApp.setNextFormPrevious()
 	
 	# Create Widgets
 	def create(self):
-		self.selectTable = None
+		#self.selectTable = None
 		self.rowNum = self.add(npyscreen.TitleText, name='Rows: ', value = str(rowNumber))
+		self.tableName = self.add(npyscreen.TitleText, name='Table Name: ')
+		self.name = self.add(npyscreen.TitleText, name='Table Name2: ', value = str(self.tableName))
 		self.action = self.add(npyscreen.TitleSelectOne, max_height=5,
 																		name='Select Action',
 																		values = ['Next Page', 'Prev Page', 'Add Row', 'Edit Row', 'Delete Row'],
@@ -177,13 +211,17 @@ class TableMenuForm(npyscreen.ActionForm):
 																		)
 		# move one line down from  the previous form
 		self.nextrely += 1
+		
 		# Create MyGrid Widget object
-		self.myGrid =  self.add(MyGrid, col_titles = ['1','2','3','4'])
+		# fetch columns names into columns_list
+		self.columns_list = self.parentApp.myDatabase.list_columns(self.tableName.value)
+		self.myGrid =  self.add(MyGrid, col_titles = self.columns_list)
+		
 		# populate the grid
 		self.myGrid.values = []
 		for x in range(rowNumber):
 			row = []
-			for y in range(4):
+			for y in range(5):
 				if bool(random.getrandbits(1)):
 					row.append("PASS")
 				else:
@@ -192,18 +230,21 @@ class TableMenuForm(npyscreen.ActionForm):
 	
 	def beforeEditing(self):
 		if self.selectTable:
-			self.name = "%s" % self.selectTable
+			#global tableName
+			#tableName = self.selectTable
+			#self.columns_list = self.parentApp.myDatabase.list_columns(self.selectTable)
+			self.name = "Table '%s'" % self.selectTable
+			#self.name = self.columns_list
+			#self.name = self.parentApp.myDatabase.list_columns("company")
 		else:
 			self.name = "New Record"
-			
-		#return self.action.value;
-		#self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.exit_application
+		self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.exit_application
 		
 	def exit_application(self):
-		curses.beep()
-		self.parentApp.setNextForm(None)
+		#curses.beep()
+		self.isExit = True
+		self.parentApp.switchForm(None)
 		self.editing = False
-
 
 '''*********************************************************
    Class AddRowForm inherits ActionForm class
@@ -228,12 +269,16 @@ class AddRowForm(npyscreen.ActionForm):
 	It's a main app environment
 **************************************************'''
 class MyApplication(npyscreen.NPSAppManaged):
-    def onStart(self):
+	def onStart(self):
 		self.myDatabase = Database()
-		selTableF = self.addForm('MAIN', TableListDisplay, name='Select Table')
-		tabMenuF = self.addForm('Menu', TableMenuForm, name='Table Menu')
-		addRowF = self.addForm('Add Row', AddRowForm, name='Add Row')
+		self.selTableF = self.addForm('MAIN', TableListDisplay, name='Select Table')
+		self.tabMenuF = self.addForm('Menu', TableMenuForm, name='Table Menu')
+		self.addRowF = self.addForm('Add Row', AddRowForm, name='Add Row')
+	
+	
+	def onCleanExit(self):
+		self.myDatabase.closeConn()
 
 if __name__ == '__main__':
-    TestApp = MyApplication().run()
-    print TestApp
+    MyApplication().run()
+    print 'Exited From the App'
