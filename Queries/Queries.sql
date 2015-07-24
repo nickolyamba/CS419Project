@@ -1,4 +1,13 @@
-﻿####################### List All Columns ######################
+﻿####################### Pagination #1 ######################
+# http://sqlperformance.com/2015/01/t-sql-queries/pagination-with-offset-fetch
+SELECT * FROM company 
+ORDER BY id ASC
+OFFSET 1 FETCH NEXT 2 ROWS ONLY
+
+SELECT * FROM company 
+ORDER BY id ASC OFFSET 1 LIMIT 2
+
+####################### List All Columns ######################
 SELECT column_name from information_schema.columns 
 WHERE table_name='company';
 

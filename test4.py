@@ -11,10 +11,14 @@
 import npyscreen, curses
 import random
 import psycopg2
+from psycopg2.extensions import AsIs
 import sys
 
 # $mysqli = new mysqli("oniddb.cws.oregonstate.edu", "goncharn-db", $myPassword, "goncharn-db");
-rowNumber = 3
+limit = 3
+sort_direction = 'ASC'
+offset = 0
+paramstyle = 'format'
 
 '''**************************************************
 * Class Database inherits object class
@@ -48,7 +52,7 @@ class Database(object):
 		columns_list = []
 		cur = self.conn.cursor()
 		cur.execute("SELECT column_name from information_schema.columns \
-										WHERE table_name='" + str(table_name) + "';")
+										WHERE table_name = %s;", (table_name,))
 		columns_tuple = cur.fetchall()
 		cur.close()
 		# traverese tuple of tuples to list of strings
@@ -58,9 +62,10 @@ class Database(object):
 			columns_list.append(col[0])
 		return columns_list
 		
-	def list_records(self, table_name, rowNumber):
+	def list_records(self, table_name, sort_column, sort_direction, offset, limit):
 		cur = self.conn.cursor()
-		cur.execute("SELECT * from " + table_name + " LIMIT " + rowNumber + ";")
+		cur.execute("SELECT * from %s ORDER BY %s %s OFFSET %s LIMIT %s;", 
+						(AsIs(table_name), AsIs(sort_column), AsIs(sort_direction), offset, limit))
 		rows = cur.fetchall()
 		return rows
 	
@@ -142,12 +147,15 @@ class TableList(npyscreen.MultiLineAction):
     
     def actionHighlighted(self, act_on_this, keypress):
 		selectedTableName = act_on_this[0]
-		self.parent.parentApp.tabMenuF.tableName = selectedTableName # experimental line
+		global sort_direction
+		global offset
+		global limit
+		#self.parent.parentApp.tabMenuF.tableName = selectedTableName # experimental line
 		self.parent.parentApp.getForm('Menu').selectTable = selectedTableName
+		self.parent.parentApp.getForm('Menu').sort_direction = sort_direction
+		self.parent.parentApp.getForm('Menu').offset = offset
+		self.parent.parentApp.getForm('Menu').limit = limit
 		self.parent.parentApp.switchForm('Menu')
-		
-		
-		
 
 		
 '''**************************************************
@@ -198,19 +206,21 @@ class TableMenuForm(npyscreen.ActionForm):
 				self.parentApp.setNextForm('Next Page')
 			elif selection == 'Prev Page':
 				self.parentApp.setNextForm('Prev Page')
+			elif selection == 'Pagination Settings':
+				self.parentApp.setNextForm('Pagination')
 			else:
 				self.parentApp.switchForm(None)
 			#self.parentApp.setNextFormPrevious()
 	
 	# Create Widgets
 	def create(self):
-		#self.selectTable = None
-		self.rowNum = self.add(npyscreen.TitleText, name='Rows: ', value = str(rowNumber))
+		global limit
+		self.rowNum = self.add(npyscreen.TitleText, name='Rows: ', value = str(limit))
 		#self.tableName = self.add(npyscreen.TitleText, name='Table Name: ')
 		#self.tableName2 = self.add(npyscreen.TitleText, name='Table Name2: ', value = str(self.tableName))
-		self.action = self.add(npyscreen.TitleSelectOne, max_height=5,
+		self.action = self.add(npyscreen.TitleSelectOne, max_height=6,
 																		name='Select Action',
-																		values = ['Next Page', 'Prev Page', 'Add Row', 'Edit Row', 'Delete Row'],
+																		values = ['Next Page', 'Prev Page', 'Add Row', 'Edit Row', 'Delete Row', 'Pagination Settings'],
 																		scroll_exit = True
 																		 # Let the user move out of the widget by pressing 
 																		# the down arrow instead of tab.  Try it without to see the difference.
@@ -230,7 +240,7 @@ class TableMenuForm(npyscreen.ActionForm):
 			
 			# populate the grid
 			self.myGrid.values = []
-			self.rows = self.parentApp.myDatabase.list_records(self.selectTable, str(rowNumber))
+			self.rows = self.parentApp.myDatabase.list_records(self.selectTable, self.columns_list[0], self.sort_direction, self.offset, self.limit)
 			for row in self.rows:
 				self.myGrid.values.append(row)
 		else:
