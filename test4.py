@@ -285,11 +285,11 @@ class TableMenuForm(npyscreen.ActionForm):
 			# populate the grid
 			self.myGrid.values = []
 			self.myGrid.default_column_number = 5
-			'''
+			
 			self.rows = self.parentApp.myDatabase.list_records(self.selectTable, self.columns_list[0], self.sort_direction, self.offset, self.limit)
 			for row in self.rows:
 				self.myGrid.values.append(row)
-			'''
+			
 		else:
 			self.name = "Error transfering data from Screen #1 to #2!"
 		
