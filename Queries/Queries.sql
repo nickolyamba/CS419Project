@@ -1,4 +1,24 @@
-﻿####################### Pagination #1 ######################
+﻿####################### AutoVacuuming ######################
+# http://www.postgresonline.com/journal/archives/139-Enable-and-Disable-Vacuum-per-table.html
+# https://lob.com/blog/supercharge-your-postgresql-performance/
+--disable auto vacuum
+ALTER TABLE sometable SET (
+  autovacuum_enabled = false, toast.autovacuum_enabled = false
+);
+
+--enable auto vacuum
+ALTER TABLE sometable SET (
+  autovacuum_enabled = true, toast.autovacuum_enabled = true
+);
+
+ALTER TABLE table_name SET (autovacuum_vacuum_scale_factor = 0.0);  
+ALTER TABLE table_name SET (autovacuum_vacuum_threshold = 5000);  
+ALTER TABLE table_name SET (autovacuum_analyze_scale_factor = 0.0);  
+ALTER TABLE table_name SET (autovacuum_analyze_threshold = 5000);
+
+# number of rows:
+SELECT reltuples FROM pg_class WHERE oid = 'public.company'::regclass;  
+####################### Pagination #1 ######################
 # http://sqlperformance.com/2015/01/t-sql-queries/pagination-with-offset-fetch
 SELECT * FROM company 
 ORDER BY id ASC
@@ -28,27 +48,33 @@ CREATE TABLE COMPANY(
 );
 
 INSERT INTO COMPANY (NAME,AGE,ADDRESS,SALARY)
-VALUES ( 'Paul', 32, 'California', 20000.00 );
+VALUES ('Paul', 32, 'California', 20000.00);
 
 INSERT INTO COMPANY (NAME,AGE,ADDRESS,SALARY)
-VALUES ('Allen', 25, 'Texas', 15000.00 );
+VALUES ('Allen', 25, 'Texas', 15000.00);
 
 INSERT INTO COMPANY (NAME,AGE,ADDRESS,SALARY)
-VALUES ('Teddy', 23, 'Norway', 20000.00 );
+VALUES ('Teddy', 23, 'Norway', 20000.00);
 
 INSERT INTO COMPANY (NAME,AGE,ADDRESS,SALARY)
-VALUES ( 'Mark', 25, 'Rich-Mond ', 65000.00 );
+VALUES ('Mark', 25, 'Rich-Mond ', 65000.00);
 
 INSERT INTO COMPANY (NAME,AGE,ADDRESS,SALARY)
-VALUES ( 'David', 27, 'Texas', 85000.00 );
-
-
-INSERT INTO COMPANY (NAME,AGE,ADDRESS,SALARY)
-VALUES ( 'Kim', 22, 'South-Hall', 45000.00 );
+VALUES ('David', 27, 'Texas', 85000.00);
 
 INSERT INTO COMPANY (NAME,AGE,ADDRESS,SALARY)
-VALUES ( 'James', 24, 'Houston', 10000.00 );
+VALUES ('Kim', 22, 'South-Hall', 45000.00);
 
+INSERT INTO COMPANY (NAME,AGE,ADDRESS,SALARY)
+VALUES ('James', 24, 'Houston', 10000.00);
+
+INSERT INTO COMPANY (NAME,AGE,ADDRESS,SALARY)
+VALUES ('Michael', 37, 'Berkeley', 38000.00), 
+('Zigmund', 21, 'Oakland', 45000.00),
+('Ying', 22, 'San Pablo', 45000.00),
+('Cristle', 25, 'Daily City', 70000.00),
+('Rachel', 35, 'San Bernandino', 35000.00),
+('Nick', 24, 'Carmel', 15000.00);
 ####################### Supplier ######################
 CREATE TABLE SUPPLIER (
   suppID SERIAL PRIMARY KEY,

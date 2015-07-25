@@ -15,10 +15,11 @@ from psycopg2.extensions import AsIs
 import sys
 
 # $mysqli = new mysqli("oniddb.cws.oregonstate.edu", "goncharn-db", $myPassword, "goncharn-db");
-limit = 3
-sort_direction = 'ASC'
-offset = 0
-paramstyle = 'format'
+#limit = 3
+#sort_direction = 'ASC'
+#offset = 0
+#paramstyle = 'format'
+#table = ''
 
 '''**************************************************
 * Class Database inherits object class
@@ -146,17 +147,16 @@ class TableList(npyscreen.MultiLineAction):
         return "%s" % (value[0])
     
     def actionHighlighted(self, act_on_this, keypress):
+		# get value of selected table
 		selectedTableName = act_on_this[0]
-		global sort_direction
-		global offset
-		global limit
-		#self.parent.parentApp.tabMenuF.tableName = selectedTableName # experimental line
+		# save the name of selected table in settings object
+		self.parent.parentApp.myGridSet.table = selectedTableName
+		# initialize TableMenuForm object attributes and switch to TableMenuForm
 		self.parent.parentApp.getForm('Menu').selectTable = selectedTableName
-		self.parent.parentApp.getForm('Menu').sort_direction = sort_direction
-		self.parent.parentApp.getForm('Menu').offset = offset
-		self.parent.parentApp.getForm('Menu').limit = limit
+		self.parent.parentApp.getForm('Menu').sort_direction = self.parent.parentApp.myGridSet.sort_direction
+		self.parent.parentApp.getForm('Menu').offset = self.parent.parentApp.myGridSet.offset
+		self.parent.parentApp.getForm('Menu').limit = self.parent.parentApp.myGridSet.limit
 		self.parent.parentApp.switchForm('Menu')
-
 		
 '''**************************************************
    Class TableListDisplay inherits FormMutt class
@@ -195,39 +195,82 @@ class TableMenuForm(npyscreen.ActionForm):
 		if self.isExit == True:
 			self.parentApp.switchForm(None)
 		else:
-			selection = self.action.get_selected_objects()[0]
-			if selection == 'Add Row':
-				self.parentApp.setNextForm('Add Row')
-			elif selection == 'Edit Row':
-				self.parentApp.setNextForm('Edit Row')
-			elif selection == 'Delete Row':
-				self.parentApp.setNextForm('Delete Row')
-			elif selection == 'Next Page':
-				self.parentApp.setNextForm('Next Page')
-			elif selection == 'Prev Page':
-				self.parentApp.setNextForm('Prev Page')
-			elif selection == 'Pagination Settings':
-				self.parentApp.setNextForm('Pagination')
-			else:
-				self.parentApp.switchForm(None)
+			if len(self.action.get_selected_objects()) > 0:
+				selection = self.action.get_selected_objects()[0]
+				if selection == 'Add Row':
+					self.parentApp.setNextForm('Add Row')
+				elif selection == 'Edit Row':
+					self.parentApp.setNextForm('Edit Row')
+				elif selection == 'Delete Row':
+					self.parentApp.setNextForm('Delete Row')
+				elif selection == 'Pagination Settings':
+					self.parentApp.setNextForm('GridSet')
+				else:
+					self.parentApp.switchForm(None)
 			#self.parentApp.setNextFormPrevious()
 	
 	# Create Widgets
 	def create(self):
-		global limit
-		self.rowNum = self.add(npyscreen.TitleText, name='Rows: ', value = str(limit))
 		#self.tableName = self.add(npyscreen.TitleText, name='Table Name: ')
 		#self.tableName2 = self.add(npyscreen.TitleText, name='Table Name2: ', value = str(self.tableName))
-		self.action = self.add(npyscreen.TitleSelectOne, max_height=6,
-																		name='Select Action',
-																		values = ['Next Page', 'Prev Page', 'Add Row', 'Edit Row', 'Delete Row', 'Pagination Settings'],
-																		scroll_exit = True
-																		 # Let the user move out of the widget by pressing 
-																		# the down arrow instead of tab.  Try it without to see the difference.
-																		)
-		# move one line down from  the previous form
 		self.nextrely += 1
-
+		self.action = self.add(npyscreen.TitleSelectOne, max_height=6,
+									    name='Select Action',
+										values = ['Add Row', 'Edit Row', 'Delete Row', 'Pagination Settings'],
+										scroll_exit = True
+										 # Let the user move out of the widget by pressing 
+										# the down arrow instead of tab.  Try it without to see the difference.
+										)
+		self.nextrely += 2
+		self.nextrelx += 15
+		# buttons
+		self.bn_prev = self.add(npyscreen.ButtonPress, name = "Prev")
+		self.bn_prev.whenPressed = self.redrawPrev
+		
+		self.nextrely += -1
+		self.nextrelx += 20
+		self.bn_next = self.add(npyscreen.ButtonPress, name = "Next")
+		self.bn_next.whenPressed = self.redrawNext
+	
+		self.nextrelx += -35
+		self.nextrely += 1
+		# move one line down from  the previous form
+		
+	def redrawNext(self):
+		# intialize query attributes from settings object
+		self.limit = self.parentApp.myGridSet.limit
+		# update offset
+		new_offset = self.parentApp.myGridSet.offset + self.limit
+		self.parentApp.myGridSet.offset = new_offset
+		self.offset = self.parentApp.myGridSet.offset
+		self.sort_direction = sort_direction = self.parentApp.myGridSet.sort_direction
+		# reset Grid
+		self.myGrid.values = []
+		# query rows from database to populate grid
+		self.rows = self.parentApp.myDatabase.list_records(self.selectTable, self.columns_list[0], self.sort_direction, self.offset, self.limit)
+		for row in self.rows:
+			self.myGrid.values.append(row)
+		self.display()
+		
+	def redrawPrev(self):
+		# intialize query attributes from settings object
+		self.limit = self.parentApp.myGridSet.limit
+		# update offset
+		new_offset = self.parentApp.myGridSet.offset - self.limit
+		if new_offset < 0:
+			self.parentApp.myGridSet.offset = 0
+		else:
+			self.parentApp.myGridSet.offset = new_offset
+		self.offset = self.parentApp.myGridSet.offset
+		self.sort_direction = sort_direction = self.parentApp.myGridSet.sort_direction
+		# reset Grid
+		self.myGrid.values = []
+		# query rows from database to populate grid
+		self.rows = self.parentApp.myDatabase.list_records(self.selectTable, self.columns_list[0], self.sort_direction, self.offset, self.limit)
+		for row in self.rows:
+			self.myGrid.values.append(row)
+		self.display()
+		
 	def beforeEditing(self):
 		# if were able to set value for self.selectTable
 		if self.selectTable:
@@ -236,13 +279,17 @@ class TableMenuForm(npyscreen.ActionForm):
 			# Create MyGrid Widget object
 			# fetch columns names into columns_list
 			self.columns_list = self.parentApp.myDatabase.list_columns(self.selectTable)
-			self.myGrid =  self.add(MyGrid, col_titles = self.columns_list)
+			
+			self.myGrid =  self.add(MyGrid, col_titles = self.columns_list, select_whole_line = True)
 			
 			# populate the grid
 			self.myGrid.values = []
+			self.myGrid.default_column_number = 5
+			'''
 			self.rows = self.parentApp.myDatabase.list_records(self.selectTable, self.columns_list[0], self.sort_direction, self.offset, self.limit)
 			for row in self.rows:
 				self.myGrid.values.append(row)
+			'''
 		else:
 			self.name = "Error transfering data from Screen #1 to #2!"
 		
@@ -253,6 +300,7 @@ class TableMenuForm(npyscreen.ActionForm):
 		self.isExit = True
 		self.parentApp.switchForm(None)
 		self.editing = False
+
 
 '''*********************************************************
    Class AddRowForm inherits ActionForm class
@@ -270,18 +318,59 @@ class AddRowForm(npyscreen.ActionForm):
 		self.wgEmail      = self.add(npyscreen.TitleText, name = "Email:")
 
 
+'''*********************************************************
+   Class GridSettings inherits object
+   
+   Purpose:  Save current GridView pagination settings + table_name
+*********************************************************'''
+class GridSettings(object):
+	def __init__ (self):
+		self.limit = 3
+		self.sort_direction = 'ASC'
+		self.offset = 0
+		self.table = ''
+		self.column = ''
+
+
+# Form containing pagination settings
+class GridSetForm(npyscreen.ActionForm):
+	def afterEditing(self):
+		self.parentApp.setNextFormPrevious()
+	
+	def create(self):
+		self.limitWidget = self.add(npyscreen.TitleText, name='Rows per page: ', value = str(self.parentApp.myGridSet.limit))
+		self.offsetWidget = self.add(npyscreen.TitleText, name='Start at row #:', value = str(self.parentApp.myGridSet.offset))
+		self.columnWidget = self.add(npyscreen.TitleSelectOne, max_height=5,
+									    name='Order by',
+										values = ['1', '2'],#self.parentApp.tabMenuF.columns_list,
+										scroll_exit = True
+										 # Let the user move out of the widget by pressing 
+										# the down arrow instead of tab.  Try it without to see the difference.
+										)
+		
+		self.sortDirWidget = self.add(npyscreen.TitleSelectOne, max_height=6,
+									    name='Sort',
+										values = ['ASC', 'DESC'],
+										scroll_exit = True
+										 # Let the user move out of the widget by pressing 
+										# the down arrow instead of tab.  Try it without to see the difference.
+										)
+
+
 '''**************************************************
    Class MyApplication inherits NPSAppManaged class
    
    Purpose:  Manages  flow between application screens.
-	It's a main app environment
+				 It's a main app environment
 **************************************************'''
 class MyApplication(npyscreen.NPSAppManaged):
 	def onStart(self):
 		self.myDatabase = Database()
+		self.myGridSet = GridSettings()
 		self.selTableF = self.addForm('MAIN', TableListDisplay, name='Select Table')
 		self.tabMenuF = self.addForm('Menu', TableMenuForm, name='Table Menu')
 		self.addRowF = self.addForm('Add Row', AddRowForm, name='Add Row')
+		self.GridSetF = self.addForm('GridSet', GridSetForm, name='Pagination Settings')
 	
 	
 	def onCleanExit(self):
