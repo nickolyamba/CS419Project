@@ -9,17 +9,12 @@
 **************************************'''
 
 import npyscreen, curses
-import random
 import psycopg2
 from psycopg2.extensions import AsIs
 import sys
 
+# http://stackoverflow.com/questions/2146705/select-datatype-of-the-field-in-postgres - datatypes fields
 # $mysqli = new mysqli("oniddb.cws.oregonstate.edu", "goncharn-db", $myPassword, "goncharn-db");
-#limit = 3
-#sort_direction = 'ASC'
-#offset = 0
-#paramstyle = 'format'
-#table = ''
 
 '''**************************************************
 * Class Database inherits object class
@@ -69,50 +64,32 @@ class Database(object):
 						(AsIs(table_name), AsIs(sort_column), AsIs(sort_direction), offset, limit))
 		rows = cur.fetchall()
 		return rows
+		
+	def add_record(self, table_name, sort_column, sort_direction, offset, limit):
+		cur = self.conn.cursor()
+		cur.execute("SELECT * from %s ORDER BY %s %s OFFSET %s LIMIT %s;", 
+						(AsIs(table_name), AsIs(sort_column), AsIs(sort_direction), offset, limit))
+		rows = cur.fetchall()
+		return rows
 	
 	def closeConn(self):
 		self.conn.close()
-'''
-    def add_record(self, last_name = '', other_names='', email_address=''):
-        db = sqlite3.connect(self.dbfilename)
-        c = db.cursor()
-        c.execute('INSERT INTO records(last_name, other_names, email_address) \
-                    VALUES(?,?,?)', (last_name, other_names, email_address))
-        db.commit()
-        c.close()
-    
-    def update_record(self, record_id, last_name = '', other_names='', email_address=''):
-        db = sqlite3.connect(self.dbfilename)
-        c = db.cursor()
-        c.execute('UPDATE records set last_name=?, other_names=?, email_address=? \
-                    WHERE record_internal_id=?', (last_name, other_names, email_address, \
-                                                        record_id))
-        db.commit()
-        c.close()    
 
-    def delete_record(self, record_id):
-        db = sqlite3.connect(self.dbfilename)
-        c = db.cursor()
-        c.execute('DELETE FROM records where record_internal_id=?', (record_id,))
-        db.commit()
-        c.close()    
-    
-    def list_all_records(self, ):
-        db = sqlite3.connect(self.dbfilename)
-        c = db.cursor()
-        c.execute('SELECT * from records')
-        records = c.fetchall()
-        c.close()
-        return records
-    
-    def get_record(self, record_id):
-        db = sqlite3.connect(self.dbfilename)
-        c = db.cursor()
-        c.execute('SELECT * from records WHERE record_internal_id=?', (record_id,))
-        records = c.fetchall()
-        c.close()
-        return records[0]
-'''
+'''*********************************************************
+   Class GridSettings inherits object
+   
+   Purpose:  Save current GridView pagination settings + table_name
+*********************************************************'''
+class GridSettings(object):
+	def __init__ (self):
+		self.limit = 3
+		self.sort_direction = 'ASC'
+		self.offset = 0
+		self.table = ''
+		self.sort_column = ''
+		self.columns_list = []
+		self.rows = []
+
 
 '''**************************************************
    Class MyGrid inherits GridColTitles class
@@ -125,13 +102,38 @@ class MyGrid(npyscreen.GridColTitles):
     # a cell is printed. In this example we change the color of the
     # text depending on the string value of cell.
     def custom_print_cell(self, actual_cell, cell_display_value):
-        if cell_display_value =='FAIL':
-           actual_cell.color = 'DANGER'
-        elif cell_display_value == 'PASS':
-           actual_cell.color = 'GOOD'
-        else:
-           actual_cell.color = 'DEFAULT'
+        pass
 
+
+'''**************************************************
+   Class TableOptionList inherits MultiLineAction class
+   
+   Purpose:  display list of actions that can be performed on 
+   the table
+**************************************************'''
+class TableOptionList(npyscreen.MultiLineAction):
+    def __init__(self, *args, **keywords):
+        super(TableOptionList, self).__init__(*args, **keywords)
+
+    def display_value(self, value):
+        return "%s" % (value)
+    
+    def actionHighlighted(self, act_on_this, keypress):
+		# get name of selected option
+		selection = act_on_this
+		if selection == 'Add Row':
+			self.parent.parentApp.switchForm('Add Row')
+			#self.parent.parentApp.AddRowF.columns_list = self.parent.parentApp.tabMenuF.columns_list
+		elif selection == 'Edit Row':
+			self.parent.parentApp.switchForm('Edit Row')
+		elif selection == 'Delete Row':
+			self.parent.parentApp.switchForm('Delete Row')
+		elif selection == 'Pagination Settings':
+			self.parent.parentApp.GridSetF.columns_list = self.parent.parentApp.tabMenuF.columns_list
+			self.parent.parentApp.switchForm('GridSet')
+		else:
+			self.parent.parentApp.switchForm()
+		   
 
 '''**************************************************
    Class TableList inherits MultiLineAction class
@@ -147,7 +149,7 @@ class TableList(npyscreen.MultiLineAction):
         return "%s" % (value[0])
     
     def actionHighlighted(self, act_on_this, keypress):
-		# get value of selected table
+		# get name of selected table
 		selectedTableName = act_on_this[0]
 		# save the name of selected table in settings object
 		self.parent.parentApp.myGridSet.table = selectedTableName
@@ -164,12 +166,14 @@ class TableListDisplay(npyscreen.FormMutt):
 	
 	# type of widget to be displayed
 	MAIN_WIDGET_CLASS = TableList
+	# position of main_widget and status widget
 	MAIN_WIDGET_CLASS_START_LINE = 2
 	STATUS_WIDGET_X_OFFSET = 5
 	
 	def beforeEditing(self):
 		self.update_list()
 	
+	# populate wMain.values with list of tables in the database
 	def update_list(self):
 		self.wStatus1.value =  ' Select Table From List   '
 		self.wMain.values = self.parentApp.myDatabase.list_all_tables()
@@ -185,24 +189,12 @@ class TableListDisplay(npyscreen.FormMutt):
 class TableMenuForm(npyscreen.ActionForm):
 	# set screen redirection based on user choice
 	def afterEditing(self):
-			if len(self.action.get_selected_objects()) > 0:
-				selection = self.action.get_selected_objects()[0]
-				if selection == 'Add Row':
-					self.parentApp.setNextForm('Add Row')
-				elif selection == 'Edit Row':
-					self.parentApp.setNextForm('Edit Row')
-				elif selection == 'Delete Row':
-					self.parentApp.setNextForm('Delete Row')
-				elif selection == 'Pagination Settings':
-					self.parentApp.GridSetF.columns_list = self.columns_list#self.parentApp.myGridSet.column
-					self.parentApp.setNextForm('GridSet')
-				else:
-					self.parentApp.switchForm(None)
+			pass
 	
 	# Create Widgets
 	def create(self):
 		self.nextrely += 1
-		self.action = self.add(npyscreen.TitleSelectOne, max_height=6,
+		self.action = self.add(TableOptionList, max_height=6,
 									    name='Select Action',
 										values = ['Add Row', 'Edit Row', 'Delete Row', 'Pagination Settings'],
 										scroll_exit = True
@@ -220,13 +212,17 @@ class TableMenuForm(npyscreen.ActionForm):
 		# move one line down from  the previous form
 		self.nextrely += 1
 		
-		
 		# create Grid widget
-		self.myGrid =  self.add(MyGrid, col_titles = [], select_whole_line = True, max_height=12)
-		# exit on Esc
+		self.myGrid =  self.add(MyGrid, col_titles = [], select_whole_line = True)
+		# define exit on Esc
 		self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.exit_application
 		
-		
+	'''**************************************************************************
+	Function redrawNext
+
+	Purpose:  Handler for "Next Button".  
+	Implements Next Pagination by fetching next range of records from the database
+	***************************************************************************'''			
 	def redrawNext(self):
 		# intialize query attributes from settings object
 		self.limit = self.parentApp.myGridSet.limit
@@ -234,8 +230,9 @@ class TableMenuForm(npyscreen.ActionForm):
 		new_offset = self.parentApp.myGridSet.offset + self.limit
 		self.parentApp.myGridSet.offset = new_offset
 		self.offset = self.parentApp.myGridSet.offset
+		# update sorting order and column to sort on
 		self.sort_direction = self.parentApp.myGridSet.sort_direction
-		self.sort_column = self.parentApp.myGridSet.column
+		self.sort_column = self.parentApp.myGridSet.sort_column
 		# when called with default settings
 		if self.sort_column == '':
 				self.sort_column = self.columns_list[0]
@@ -246,19 +243,26 @@ class TableMenuForm(npyscreen.ActionForm):
 		for row in self.rows:
 			self.myGrid.values.append(row)
 		self.display()
-		
+	
+	'''**************************************************************************
+	Function redrawPrev
+
+	Purpose:  Handler for "Prev Button".  
+	Implements Previous Pagination by fetching previous range of records from the database
+	***************************************************************************'''		
 	def redrawPrev(self):
 		# intialize query attributes from settings object
 		self.limit = self.parentApp.myGridSet.limit
 		# update offset
 		new_offset = self.parentApp.myGridSet.offset - self.limit
+		# don't allow to fetch for negative row numbers
 		if new_offset < 0:
 			self.parentApp.myGridSet.offset = 0
 		else:
 			self.parentApp.myGridSet.offset = new_offset
 		self.offset = self.parentApp.myGridSet.offset
 		self.sort_direction =  self.parentApp.myGridSet.sort_direction
-		self.sort_column = self.parentApp.myGridSet.column
+		self.sort_column = self.parentApp.myGridSet.sort_column
 		# when called with default settings
 		if self.sort_column == '':
 				self.sort_column = self.columns_list[0]
@@ -277,33 +281,38 @@ class TableMenuForm(npyscreen.ActionForm):
 			
 			self.columns_list = self.parentApp.myDatabase.list_columns(self.table_name)
 			self.myGrid.col_titles = self.columns_list
+			self.parentApp.myGridSet.columns_list = self.columns_list
 			
-			# update query params from DridSettings
+			# update query params from GridSettings object
 			self.limit = self.parentApp.myGridSet.limit
 			self.offset = self.parentApp.myGridSet.offset
 			self.sort_direction = self.parentApp.myGridSet.sort_direction
-			self.sort_column = self.parentApp.myGridSet.column
+			self.sort_column = self.parentApp.myGridSet.sort_column
 			# when called with default settings
 			if self.sort_column == '':
 				self.sort_column = self.columns_list[0]
 			
-			# populate the grid
+			# populate the grid by fetching data from database
 			self.myGrid.values = []
 			self.rows = []
 			self.myGrid.default_column_number = 5
 			if len(self.columns_list) > 0:
 				self.rows = self.parentApp.myDatabase.list_records(self.table_name, self.sort_column, self.sort_direction, self.offset, self.limit)
+				# cache data  in the GridSetting (allow to cache) since we don't query large amount
+				# of data.We limit querying and showing no more than 10 records per page
+				self.parentApp.myGridSet.rows = self.rows
 			for row in self.rows:
 				self.myGrid.values.append(row)
 				
 		else:
-			self.name = "Error transfering data from Screen #1 to #2!"
-		
-		
+			self.name = "Error transfering data from Screen #1 to #2!"	
 		
 	def exit_application(self):
 		self.parentApp.switchForm(None)
-		self.editing = False
+		self.parentApp.switchFormNow()
+	
+	def on_cancel(self):
+		self.parentApp.switchForm('MAIN')
 		self.parentApp.switchFormNow()
 
 
@@ -315,26 +324,38 @@ class TableMenuForm(npyscreen.ActionForm):
 class AddRowForm(npyscreen.ActionForm):
 	def afterEditing(self):
 		self.parentApp.setNextFormPrevious()
-	# It's just prototype, non-dynamic
+	
 	def create(self):
-		self.value = None
-		self.wgLastName   = self.add(npyscreen.TitleText, name = "Last Name:",)
-		self.wgOtherNames = self.add(npyscreen.TitleText, name = "Other Names:")
-		self.wgEmail      = self.add(npyscreen.TitleText, name = "Email:")
-
-
-'''*********************************************************
-   Class GridSettings inherits object
-   
-   Purpose:  Save current GridView pagination settings + table_name
-*********************************************************'''
-class GridSettings(object):
-	def __init__ (self):
-		self.limit = 3
-		self.sort_direction = 'ASC'
-		self.offset = 0
-		self.table = ''
-		self.column = ''
+		# generate dict to hold widget objects
+		# http://stackoverflow.com/questions/4010840
+		self.dict = {}
+		count = 0
+		for column in self.parentApp.myGridSet.columns_list:
+			count = count + 1
+			self.dict["column"+ str(count)] = self.wgLastName  = self.add(npyscreen.TitleText, name = column)
+		
+		# move one line down from  the previous form
+		self.nextrely += 1
+		
+		# buttons
+		self.bn_prev = self.add(npyscreen.ButtonPress, name = "Prev", max_height=1, relx = 20)
+		self.bn_prev.whenPressed = self.parentApp.tabMenuF.redrawPrev # button press handler
+		
+		self.nextrely += -1 # 2nd widget stays at the same line 
+		self.bn_next = self.add(npyscreen.ButtonPress, name = "Next", max_height=1, relx = 30)
+		self.bn_next.whenPressed =self.parentApp.tabMenuF.redrawNext # button press handler
+		
+		# create Grid widget
+		self.myGrid =  self.add(MyGrid, col_titles = [], select_whole_line = True)
+	
+	def beforeEditing(self):
+			# display cached Grid
+			self.myGrid.values = []
+			row = []
+			self.myGrid.col_titles = self.parentApp.myGridSet.columns_list
+			for row in self.parentApp.myGridSet.rows:
+				self.myGrid.values.append(row)
+	
 
 
 # Form containing pagination settings
@@ -343,7 +364,7 @@ class GridSetForm(npyscreen.ActionForm):
 		self.parentApp.myGridSet.limit = int(self.limitWidget.value)
 		self.parentApp.myGridSet.offset = int(self.offsetWidget.value)
 		self.parentApp.myGridSet.sort_direction = self.sortDirWidget.get_selected_objects()[0]
-		self.parentApp.myGridSet.column = self.columnWidget.get_selected_objects()[0]
+		self.parentApp.myGridSet.sort_column = self.columnWidget.get_selected_objects()[0]
 		self.parentApp.setNextFormPrevious()
 	
 	def create(self):
@@ -379,17 +400,88 @@ class GridSetForm(npyscreen.ActionForm):
 				 It's a main app environment
 **************************************************'''
 class MyApplication(npyscreen.NPSAppManaged):
+	count = 0
 	def onStart(self):
 		self.myDatabase = Database()
 		self.myGridSet = GridSettings()
 		self.selTableF = self.addForm('MAIN', TableListDisplay, name='Select Table')
 		self.tabMenuF = self.addForm('Menu', TableMenuForm)
-		self.addRowF = self.addForm('Add Row', AddRowForm, name='Add Row')
 		self.GridSetF = self.addForm('GridSet', GridSetForm, name='Pagination Settings')
 	
+	'''**************************************************************************
+	Function onInMainLoop()
+
+	Purpose:  It is called when swithing between forms
+	***************************************************************************'''	
+	def onInMainLoop(self):
+		# when app leavs Table Menu Form (obj tabMenuF)
+		# for the first time, create Add Row form
+		if self.NEXT_ACTIVE_FORM == 'Add Row':
+			self.count = self.count + 1
+			if self.count == 1:
+				self.addRowF = self.addForm('Add Row', AddRowForm, name='Add Row')
 	
 	def onCleanExit(self):
 		self.myDatabase.closeConn()
+	
+	'''**************************************************************************
+	Function redrawNext
+
+	Purpose:  Handler for "Next Button".  
+	Implements Next Pagination by fetching next range of records from the database
+	***************************************************************************'''			
+	def redrawNext(self):
+		# intialize query attributes from settings object
+		self.limit = self.parentApp.myGridSet.limit
+		# update offset
+		new_offset = self.parentApp.myGridSet.offset + self.limit
+		self.parentApp.myGridSet.offset = new_offset
+		self.offset = self.parentApp.myGridSet.offset
+		# update sorting order and column to sort on
+		self.sort_direction = self.parentApp.myGridSet.sort_direction
+		self.sort_column = self.parentApp.myGridSet.sort_column
+		# when called with default settings
+		if self.sort_column == '':
+				self.sort_column = self.columns_list[0]
+		# reset Grid
+		self.myGrid.values = []
+		# query rows from database to populate grid
+		self.rows = self.parentApp.myDatabase.list_records(self.table_name, self.sort_column, self.sort_direction, self.offset, self.limit)
+		for row in self.rows:
+			self.myGrid.values.append(row)
+		self.display()
+	
+	
+	'''**************************************************************************
+	Function redrawPrev
+
+	Purpose:  Handler for "Prev Button".  
+	Implements Previous Pagination by fetching previous range of records from the database
+	***************************************************************************'''		
+	def redrawPrev(self, obj):
+		# intialize query attributes from settings object
+		table_name = self.myGridSet.table
+		limit = self.myGridSet.limit
+		# update offset
+		new_offset = self.myGridSet.offset - limit
+		# don't allow to fetch for negative row numbers
+		if new_offset < 0:
+			self.myGridSet.offset = 0
+		else:
+			self.myGridSet.offset = new_offset
+		offset = self.myGridSet.offset
+		sort_direction =  self.myGridSet.sort_direction
+		sort_column = self.myGridSet.sort_column
+		# when called with default settings
+		if sort_column == '':
+				if len(self.myGridSet.columns_list) > 0:
+					sort_column = self.myGridSet.columns_list[0]
+		# query rows from database to populate grid
+		obj.myGrid.values = []
+		rows = self.myDatabase.list_records(table_name, sort_column, sort_direction, offset, limit)
+		for row in rows:
+			obj.myGrid.values.append(row)
+		obj.display()
 
 if __name__ == '__main__':
     MyApplication().run()
