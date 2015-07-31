@@ -1,4 +1,13 @@
-﻿####################### AutoVacuuming ######################
+﻿
+####################### Get Primary and it's type ######################
+SELECT a.attname, format_type(a.atttypid, a.atttypmod) AS data_type
+FROM   pg_index i
+JOIN   pg_attribute a ON a.attrelid = i.indrelid
+                     AND a.attnum = ANY(i.indkey)
+WHERE  i.indrelid = 'company'::regclass
+AND    i.indisprimary;
+
+####################### AutoVacuuming #################################
 # http://www.postgresonline.com/journal/archives/139-Enable-and-Disable-Vacuum-per-table.html
 # https://lob.com/blog/supercharge-your-postgresql-performance/
 --disable auto vacuum
@@ -46,6 +55,13 @@ CREATE TABLE COMPANY(
    ADDRESS        CHAR(50),
    SALARY         REAL
 );
+
+INSERT INTO employee (emp_name, dep_id)
+            VALUES ('dilbert', 1) RETURNING emp_id;
+
+emp_id
+------
+  1
 
 INSERT INTO COMPANY (NAME,AGE,ADDRESS,SALARY)
 VALUES ('Paul', 32, 'California', 20000.00);

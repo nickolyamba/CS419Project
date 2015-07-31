@@ -67,10 +67,10 @@ class Database(object):
 		
 	def add_record(self, table_name, sort_column, sort_direction, offset, limit):
 		cur = self.conn.cursor()
-		cur.execute("SELECT * from %s ORDER BY %s %s OFFSET %s LIMIT %s;", 
-						(AsIs(table_name), AsIs(sort_column), AsIs(sort_direction), offset, limit))
-		rows = cur.fetchall()
-		return rows
+		try:
+			cur.execute()
+		except:
+			cur.rollback()
 	
 	def closeConn(self):
 		self.conn.close()
@@ -89,6 +89,7 @@ class GridSettings(object):
 		self.sort_column = ''
 		self.columns_list = []
 		self.rows = []
+		self.edit_cell = []
 
 
 '''**************************************************
@@ -103,37 +104,6 @@ class MyGrid(npyscreen.GridColTitles):
     # text depending on the string value of cell.
     def custom_print_cell(self, actual_cell, cell_display_value):
         pass
-
-
-'''**************************************************
-   Class TableOptionList inherits MultiLineAction class
-   
-   Purpose:  display list of actions that can be performed on 
-   the table
-**************************************************'''
-class TableOptionList(npyscreen.MultiLineAction):
-    def __init__(self, *args, **keywords):
-        super(TableOptionList, self).__init__(*args, **keywords)
-
-    def display_value(self, value):
-        return "%s" % (value)
-    
-    def actionHighlighted(self, act_on_this, keypress):
-		# get name of selected option
-		selection = act_on_this
-		if selection == 'Add Row':
-			self.parent.parentApp.switchForm('Add Row')
-			#self.parent.parentApp.AddRowF.columns_list = self.parent.parentApp.tabMenuF.columns_list
-		elif selection == 'Edit Row':
-			self.parent.parentApp.switchForm('Edit Row')
-		elif selection == 'Delete Row':
-			self.parent.parentApp.switchForm('Delete Row')
-		elif selection == 'Pagination Settings':
-			self.parent.parentApp.GridSetF.columns_list = self.parent.parentApp.tabMenuF.columns_list
-			self.parent.parentApp.switchForm('GridSet')
-		else:
-			self.parent.parentApp.switchForm()
-		   
 
 '''**************************************************
    Class TableList inherits MultiLineAction class
@@ -156,6 +126,7 @@ class TableList(npyscreen.MultiLineAction):
 		# initialize TableMenuForm object attributes and switch to TableMenuForm
 		self.parent.parentApp.getForm('Menu').table_name = selectedTableName
 		self.parent.parentApp.switchForm('Menu')
+
 		
 '''**************************************************
    Class TableListDisplay inherits FormMutt class
@@ -182,21 +153,52 @@ class TableListDisplay(npyscreen.FormMutt):
 
 
 '''**************************************************
+   Class TableOptionList inherits MultiLineAction class
+   
+   Purpose:  display list of actions that can be performed on 
+   the table
+**************************************************'''
+class TableOptionList(npyscreen.MultiLineAction):
+    def __init__(self, *args, **keywords):
+        super(TableOptionList, self).__init__(*args, **keywords)
+
+    def display_value(self, value):
+        return "%s" % (value)
+    
+    def actionHighlighted(self, act_on_this, keypress):
+		# get name of selected option
+		selection = act_on_this
+		if selection == 'Add Row':
+			self.parent.parentApp.switchForm('Add Row')
+		elif selection == 'Edit Row':
+			self.parent.parentApp.switchForm('Edit Row')
+		elif selection == 'Delete Row':
+			self.parent.parentApp.switchForm('Delete Row')
+		elif selection == 'Pagination Settings':
+			self.parent.parentApp.GridSetF.columns_list = self.parent.parentApp.tabMenuF.columns_list
+			self.parent.parentApp.switchForm('GridSet')
+		elif selection == 'Exit Application':
+			self.parent.parentApp.tabMenuF.exit_application()
+		else:
+			self.parent.parentApp.switchForm()
+
+		
+'''**************************************************
    Class TableMenuForm inherits ActionForm class
    
    Purpose:  Displays main table menu and grid
 **************************************************'''													
-class TableMenuForm(npyscreen.ActionForm):
+class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 	# set screen redirection based on user choice
 	def afterEditing(self):
-			pass
+		pass
 	
 	# Create Widgets
 	def create(self):
 		self.nextrely += 1
 		self.action = self.add(TableOptionList, max_height=6,
 									    name='Select Action',
-										values = ['Add Row', 'Edit Row', 'Delete Row', 'Pagination Settings'],
+										values = ['Add Row', 'Pagination Settings', 'Exit Application'],
 										scroll_exit = True
 										 # Let the user move out of the widget by pressing 
 										# the down arrow instead of tab.  Try it without to see the difference.
@@ -212,11 +214,37 @@ class TableMenuForm(npyscreen.ActionForm):
 		# move one line down from  the previous form
 		self.nextrely += 1
 		
-		# create Grid widget
+		self.m1 = self.add_menu(name="Main Menu", shortcut="^M")
+		self.m1.addItemsFromList([
+            ("Edit Row", self.set_edit_form, "^E"),
+            ("Delete Row", self.confirm_delete, "^D"),
+            #("Exit Application", self.exit_application, "^Q"),
+        ])
+
+		# create Grid widget  and setup handler for Enter btn press
 		self.myGrid =  self.add(MyGrid, col_titles = [], select_whole_line = True)
+		# set grid handler for Enter press. source: https://goo.gl/e9wkYu
+		grid_handler = {curses.ascii.LF: self.root_menu}
+		self.myGrid.add_handlers(grid_handler)
+
 		# define exit on Esc
 		self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.exit_application
-		
+
+	# called on Delete press in popup menu
+	def confirm_delete(self):
+		# http://npyscreen.readthedocs.org/messages.html?highlight=yes_no#selectFile
+		isDelete = npyscreen.notify_yes_no("Confirm to delete the row?", title="Confirm Deletion", form_color='STANDOUT', wrap=True, editw = 0)
+		if isDelete == True:
+			pass
+		else:
+			pass
+	
+	# called on Edit press in popup menu
+	def set_edit_form(self):
+		self.parentApp.myGridSet.edit_cell = self.myGrid.edit_cell
+		self.parentApp.switchForm('Edit Row')
+		self.parentApp.switchFormNow()
+	
 	'''**************************************************************************
 	Function redrawNext
 
@@ -298,12 +326,18 @@ class TableMenuForm(npyscreen.ActionForm):
 			self.myGrid.default_column_number = 5
 			if len(self.columns_list) > 0:
 				self.rows = self.parentApp.myDatabase.list_records(self.table_name, self.sort_column, self.sort_direction, self.offset, self.limit)
-				# cache data  in the GridSetting (allow to cache) since we don't query large amount
-				# of data.We limit querying and showing no more than 10 records per page
-				self.parentApp.myGridSet.rows = self.rows
-			for row in self.rows:
-				self.myGrid.values.append(row)
 				
+			for row in self.rows:
+				# clean up values from white spaces
+				for column in row:
+					#if isinstance(column, basestring):
+					column = str(column).rstrip('')
+				self.myGrid.values.append(row)
+			
+			# cache data  in the GridSetting (allow to cache) since we don't query large amount
+			# of data.We limit querying and showing no more than 10 records per page
+			self.parentApp.myGridSet.rows = self.rows
+		
 		else:
 			self.name = "Error transfering data from Screen #1 to #2!"	
 		
@@ -332,7 +366,7 @@ class AddRowForm(npyscreen.ActionForm):
 		count = 0
 		for column in self.parentApp.myGridSet.columns_list:
 			count = count + 1
-			self.dict["column"+ str(count)] = self.wgLastName  = self.add(npyscreen.TitleText, name = column)
+			self.dict["column"+ str(count)] = self.add(npyscreen.TitleText, name = column)
 		
 		# move one line down from  the previous form
 		self.nextrely += 1
@@ -347,6 +381,9 @@ class AddRowForm(npyscreen.ActionForm):
 		
 		# create Grid widget
 		self.myGrid =  self.add(MyGrid, col_titles = [], select_whole_line = True)
+		
+		# define return on prev form on Esc
+		self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.exit_form
 	
 	def beforeEditing(self):
 			# display cached Grid
@@ -356,9 +393,90 @@ class AddRowForm(npyscreen.ActionForm):
 			for row in self.parentApp.myGridSet.rows:
 				self.myGrid.values.append(row)
 	
+	def exit_form(self):
+		self.parentApp.setNextFormPrevious()
+		self.parentApp.switchFormNow()
 
+'''*********************************************************
+   Class EditRowForm inherits ActionForm class
+   
+   Purpose:  Reponsible for editing a selected row in the given table
+*********************************************************'''
+class EditRowForm(npyscreen.ActionForm):
+	def afterEditing(self):
+		self.parentApp.setNextFormPrevious()
+	
+	def create(self):
+		# generate dict to hold widget objects
+		# http://stackoverflow.com/questions/4010840
+		self.dict = {}
+		count = 0
+		for column in self.parentApp.myGridSet.columns_list:
+			#count = count + 1
+			#self.dict["column"+ str(count)] = self.add(npyscreen.TitleText, name = column)
+			if column is not self.parentApp.myGridSet.columns_list[0]:
+				self.dict[str(column)] = self.add(npyscreen.TitleText, name = str(column))
+		
+		# move one line down from  the previous form
+		self.nextrely += 1
+		
+		# buttons
+		self.bn_prev = self.add(npyscreen.ButtonPress, name = "Prev", max_height=1, relx = 20)
+		self.bn_prev.whenPressed = self.parentApp.tabMenuF.redrawPrev # button press handler
+		
+		self.nextrely += -1 # 2nd widget stays at the same line 
+		self.bn_next = self.add(npyscreen.ButtonPress, name = "Next", max_height=1, relx = 30)
+		self.bn_next.whenPressed =self.parentApp.tabMenuF.redrawNext # button press handler
+		
+		# create Grid widget
+		self.myGrid =  self.add(MyGrid, col_titles = [], select_whole_line = True)
+		
+		# define return on prev form on Esc
+		self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.exit_form
+	
+	def beforeEditing(self):
+			'''
+			count = 0
+			for column in self.parentApp.myGridSet.columns_list:
+				count = count + 1
+				self.dict["column"+ str(count)].value = self.column_values[count-1]
+			'''
+			# display cached Grid
+			self.myGrid.values = []
+			row = []
+			self.myGrid.col_titles = self.parentApp.myGridSet.columns_list
+			for row in self.parentApp.myGridSet.rows:
+				self.myGrid.values.append(row)
+			
+			# set current values of the columns
+			'''
+			
+			row_num = self.parentApp.myGridSet.edit_cell[0]
+			self.dict["column" + str(count)].value = str(self.parentApp.myGridSet.rows[row_num][count-1])
+			count += count
+			self.dict["column" + str(count)].value = str(self.parentApp.myGridSet.rows[row_num][count-1])
+			'''
+			row_num = self.parentApp.myGridSet.edit_cell[0]
+			count = 1
+			for column in self.parentApp.myGridSet.columns_list:
+				
+				if column is not self.parentApp.myGridSet.columns_list[0]:
+					count = count + 1
+					self.dict[str(column)].value = str(self.parentApp.myGridSet.rows[row_num][count-1])
+	
+	def exit_form(self):
+		self.parentApp.setNextFormPrevious()
+		self.parentApp.switchFormNow()
 
-# Form containing pagination settings
+'''*********************************************************
+   Class GridSetForm inherits ActionForm class
+   
+   Purpose:  Reponsible for changing global Grid Settings: 
+    - num rows per page to show
+	- starting row
+	- column to sort on
+	- sorting direction: ASC or DESC
+*********************************************************'''
 class GridSetForm(npyscreen.ActionForm):
 	def afterEditing(self):
 		self.parentApp.myGridSet.limit = int(self.limitWidget.value)
@@ -400,7 +518,8 @@ class GridSetForm(npyscreen.ActionForm):
 				 It's a main app environment
 **************************************************'''
 class MyApplication(npyscreen.NPSAppManaged):
-	count = 0
+	add_row_count = 0 # count number of calls to Add Row Form
+	edit_row_count = 0 # count number of calls to Edit Row Form
 	def onStart(self):
 		self.myDatabase = Database()
 		self.myGridSet = GridSettings()
@@ -417,9 +536,16 @@ class MyApplication(npyscreen.NPSAppManaged):
 		# when app leavs Table Menu Form (obj tabMenuF)
 		# for the first time, create Add Row form
 		if self.NEXT_ACTIVE_FORM == 'Add Row':
-			self.count = self.count + 1
-			if self.count == 1:
+			self.add_row_count = self.add_row_count + 1
+			if self.add_row_count == 1:
 				self.addRowF = self.addForm('Add Row', AddRowForm, name='Add Row')
+		
+		# when app leavs Table Menu Form (obj tabMenuF)
+		# for the first time, create Edit Row form
+		if self.NEXT_ACTIVE_FORM == 'Edit Row':
+			self.edit_row_count = self.edit_row_count + 1
+			if self.edit_row_count == 1:
+				self.editRowF = self.addForm('Edit Row', EditRowForm, name='Edit Row')
 	
 	def onCleanExit(self):
 		self.myDatabase.closeConn()
