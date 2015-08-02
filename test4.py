@@ -12,9 +12,35 @@ import npyscreen, curses
 import psycopg2
 from psycopg2.extensions import AsIs
 import sys
+import itertools
+
+from sqlalchemy import create_engine, MetaData, Table, Column, ForeignKey
+from sqlalchemy.ext.automap import automap_base
+from sqlalchemy.orm import sessionmaker
 
 # http://stackoverflow.com/questions/2146705/select-datatype-of-the-field-in-postgres - datatypes fields
 # $mysqli = new mysqli("oniddb.cws.oregonstate.edu", "goncharn-db", $myPassword, "goncharn-db");
+
+'''**************************************************
+* Class Alchemy obj inherits object class
+*
+* Purpose:  Connect to the database and insert, delete data
+**************************************************'''
+class Alchemy(object):
+	def __init__ (self):
+		self.engine =  create_engine("postgresql://muepyavy:EQoh7fJJNxK-4ag4SNUIYwzzWqTVzj-8@babar.elephantsql.com/muepyavy")
+	
+	def get_datatable(self, table_name):
+		metadata = MetaData()
+		metadata.reflect(self.engine, only=[table_name])
+		datatable = metadata.tables[table_name]
+		return datatable
+		
+	def insert(self, dict):
+		conn = engine.connect()
+		stmt = datatable.insert().values(dict)
+		conn.execute(stmt)
+		conn.close()
 
 '''**************************************************
 * Class Database inherits object class
@@ -46,16 +72,47 @@ class Database(object):
 	# returns list of all column names in the table	
 	def list_columns(self, table_name):
 		columns_list = []
+		
 		cur = self.conn.cursor()
-		cur.execute("SELECT column_name from information_schema.columns \
+		# get lists of column_name, type, charLen for CHAR, precision for numeric entries, nullable
+		cur.execute("SELECT column_name, data_type, character_maximum_length, numeric_precision, is_nullable from information_schema.columns \
 										WHERE table_name = %s;", (table_name,))
 		columns_tuple = cur.fetchall()
+		
+		cur.execute("SELECT a.attname FROM  pg_index i \
+			JOIN  pg_attribute a ON a.attrelid = i.indrelid \
+			AND a.attnum = ANY(i.indkey) \
+			WHERE  i.indrelid = %s::regclass \
+			AND  i.indisprimary;",  (table_name,))
+			
+		columns_prim_tuple = cur.fetchall()
+		
 		cur.close()
 		# traverese tuple of tuples to list of strings
-		for col in columns_tuple:
+		# http://stackoverflow.com/questions/1663807
+		for col, col_prim in itertools.izip_longest(columns_tuple, columns_prim_tuple):
+			# create Column object
+			column = Column()
+			
 			col = list(col)
 			col[0] = col[0].strip("(),'")
-			columns_list.append(col[0])
+			
+			# col_prim is None, do not append assign None
+			if col_prim:
+				col_prim = list(col_prim)
+				col_prim[0] = col_prim[0].strip("(),'")
+				column.primary_key = col_prim[0]
+			else:
+				column.primary_key = ''
+			
+			column.name = col[0]
+			column.type = col[1]
+			column.charLen = col[2]
+			column.precision = col[3]
+			column.nullable = "NULL" if col[4] == "YES" else "NOT NULL"
+
+			columns_list.append(column)
+			
 		return columns_list
 		
 	def list_records(self, table_name, sort_column, sort_direction, offset, limit):
@@ -64,7 +121,7 @@ class Database(object):
 						(AsIs(table_name), AsIs(sort_column), AsIs(sort_direction), offset, limit))
 		rows = cur.fetchall()
 		return rows
-		
+	
 	def add_record(self, table_name, sort_column, sort_direction, offset, limit):
 		cur = self.conn.cursor()
 		try:
@@ -75,6 +132,21 @@ class Database(object):
 	def closeConn(self):
 		self.conn.close()
 
+
+'''*********************************************************
+Class Column inherits object
+
+Purpose:  Save a column properties to used in the program
+*********************************************************'''
+class Column(object):
+	def __init__ (self):
+		name = ''
+		type = ''
+		charLen = ''
+		precision = ''
+		nullable = ''
+		primary_key = ''
+	
 '''*********************************************************
    Class GridSettings inherits object
    
@@ -88,8 +160,16 @@ class GridSettings(object):
 		self.table = ''
 		self.sort_column = ''
 		self.columns_list = []
+		'''
+		self.columns_type = []
+		self.columns_charLen = []
+		self.columns_presicion = []
+		self.columns_null = []
+		self.columns_prim = []
+		'''
 		self.rows = []
 		self.edit_cell = []
+		
 
 
 '''**************************************************
@@ -263,7 +343,7 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 		self.sort_column = self.parentApp.myGridSet.sort_column
 		# when called with default settings
 		if self.sort_column == '':
-				self.sort_column = self.columns_list[0]
+				self.sort_column = self.columns_list[0].name
 		# reset Grid
 		self.myGrid.values = []
 		# query rows from database to populate grid
@@ -293,7 +373,7 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 		self.sort_column = self.parentApp.myGridSet.sort_column
 		# when called with default settings
 		if self.sort_column == '':
-				self.sort_column = self.columns_list[0]
+				self.sort_column = self.columns_list[0].name
 		# reset Grid
 		self.myGrid.values = []
 		# query rows from database to populate grid
@@ -305,11 +385,18 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 	def beforeEditing(self):
 		# if were able to set value for self.selectTable
 		if self.table_name:
-			self.name = "Table '%s'" % self.table_name#self.selectTable
+			self.name = "Table '%s'" % self.table_name
 			
+			# Get list of Column objects
 			self.columns_list = self.parentApp.myDatabase.list_columns(self.table_name)
-			self.myGrid.col_titles = self.columns_list
-			self.parentApp.myGridSet.columns_list = self.columns_list
+			
+			# add column titles to the Grid
+			for col in self.columns_list:
+				self.myGrid.col_titles.append(col.name)
+			
+			# Save Table properties in the myGridSet
+			for col in self.columns_list:
+				self.parentApp.myGridSet.columns_list.append(col)
 			
 			# update query params from GridSettings object
 			self.limit = self.parentApp.myGridSet.limit
@@ -318,7 +405,7 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 			self.sort_column = self.parentApp.myGridSet.sort_column
 			# when called with default settings
 			if self.sort_column == '':
-				self.sort_column = self.columns_list[0]
+				self.sort_column = self.columns_list[0].name
 			
 			# populate the grid by fetching data from database
 			self.myGrid.values = []
@@ -357,26 +444,51 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 *********************************************************'''
 class AddRowForm(npyscreen.ActionForm):
 	def afterEditing(self):
+		#for column in self.parentApp.myGridSet.columns_list
 		self.parentApp.setNextFormPrevious()
 	
 	def create(self):
 		# generate dict to hold widget objects
 		# http://stackoverflow.com/questions/4010840
+	 	'''
+		self.datatable = self.parentApp.alchemy.get_datatable(self.parentApp.myGridSet.table)
+		for c in self.datatable.c:
+			k = str(c).split('.')
+			col_name = k[1]
+			col_type = str(c.type)
+			isNull = "NULL DEF" if c.nullable  else "NOT NULL"
+			if  c.primary_key:
+				isNull = "PRIM KEY"
+			self.dict[col_name] = self.add(npyscreen.TitleText, name = col_name + " " + col_type + " "+isNull, begin_entry_at = 30) 
+		'''
+		self.prim_key_list = []
 		self.dict = {}
-		count = 0
-		for column in self.parentApp.myGridSet.columns_list:
-			count = count + 1
-			self.dict["column"+ str(count)] = self.add(npyscreen.TitleText, name = column)
+		for col in self.parentApp.myGridSet.columns_list:
+			if col.charLen:
+				max_chars =  "("+str(col.charLen)+")"
+			else:
+				max_chars = ''
+			if col.precision:
+				precision = "("+str(col.precision)+")" 
+			else:
+				precision = ''
+			if  col.primary_key:
+				isNull = "PRIM KEY"
+				self.prim_key_list.append(col.name)
+			else:
+				isNull = col.nullable
+			self.dict[col.name] = self.add(npyscreen.TitleText, name = col.name + " " +  col.type.upper() + 
+				max_chars + precision + " " + isNull, begin_entry_at = 35)
 		
 		# move one line down from  the previous form
 		self.nextrely += 1
 		
 		# buttons
-		self.bn_prev = self.add(npyscreen.ButtonPress, name = "Prev", max_height=1, relx = 20)
+		self.bn_prev = self.add(npyscreen.ButtonPress, name = "Prev", max_height=1, relx = 35)
 		self.bn_prev.whenPressed = self.parentApp.tabMenuF.redrawPrev # button press handler
 		
 		self.nextrely += -1 # 2nd widget stays at the same line 
-		self.bn_next = self.add(npyscreen.ButtonPress, name = "Next", max_height=1, relx = 30)
+		self.bn_next = self.add(npyscreen.ButtonPress, name = "Next", max_height=1, relx = 45)
 		self.bn_next.whenPressed =self.parentApp.tabMenuF.redrawNext # button press handler
 		
 		# create Grid widget
@@ -389,9 +501,19 @@ class AddRowForm(npyscreen.ActionForm):
 			# display cached Grid
 			self.myGrid.values = []
 			row = []
-			self.myGrid.col_titles = self.parentApp.myGridSet.columns_list
+			for col in self.parentApp.myGridSet.columns_list:
+				self.myGrid.col_titles.append(col.name)
 			for row in self.parentApp.myGridSet.rows:
 				self.myGrid.values.append(row)
+				
+	def on_ok(self):
+		if len(self.prim_key_list) == 1:
+				if self.prim_key_list[0]
+					if self.dict[self.prim_key_list[0]].value:
+						
+		for col in self.parentApp.myGridSet.columns_list:
+		cur.execute('INSERT INTO %s (day, elapsed_time, net_time, length, average_speed, geometry) VALUES (%s, %s, %s, %s, %s, %s)', 
+		(escaped_name, day, time_length, time_length_net, length_km, avg_speed, myLine_ppy))
 	
 	def exit_form(self):
 		self.parentApp.setNextFormPrevious()
@@ -479,10 +601,6 @@ class EditRowForm(npyscreen.ActionForm):
 *********************************************************'''
 class GridSetForm(npyscreen.ActionForm):
 	def afterEditing(self):
-		self.parentApp.myGridSet.limit = int(self.limitWidget.value)
-		self.parentApp.myGridSet.offset = int(self.offsetWidget.value)
-		self.parentApp.myGridSet.sort_direction = self.sortDirWidget.get_selected_objects()[0]
-		self.parentApp.myGridSet.sort_column = self.columnWidget.get_selected_objects()[0]
 		self.parentApp.setNextFormPrevious()
 	
 	def create(self):
@@ -509,7 +627,13 @@ class GridSetForm(npyscreen.ActionForm):
 	def beforeEditing(self):
 		if self.columns_list:
 			self.columnWidget.values = self.columns_list
-			
+	
+	def on_ok(self):	
+		self.parentApp.myGridSet.limit = int(self.limitWidget.value)
+		self.parentApp.myGridSet.offset = int(self.offsetWidget.value)
+		self.parentApp.myGridSet.sort_direction = self.sortDirWidget.get_selected_objects()[0]
+		self.parentApp.myGridSet.sort_column = self.columnWidget.get_selected_objects()[0]
+		
 
 '''**************************************************
    Class MyApplication inherits NPSAppManaged class
@@ -522,6 +646,7 @@ class MyApplication(npyscreen.NPSAppManaged):
 	edit_row_count = 0 # count number of calls to Edit Row Form
 	def onStart(self):
 		self.myDatabase = Database()
+		self.alchemy = Alchemy() # works well, but too slow
 		self.myGridSet = GridSettings()
 		self.selTableF = self.addForm('MAIN', TableListDisplay, name='Select Table')
 		self.tabMenuF = self.addForm('Menu', TableMenuForm)

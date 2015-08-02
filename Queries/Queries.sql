@@ -37,7 +37,7 @@ SELECT * FROM company
 ORDER BY id ASC OFFSET 1 LIMIT 2
 
 ####################### List All Columns ######################
-SELECT column_name from information_schema.columns 
+SELECT column_name, data_type from information_schema.columns 
 WHERE table_name='company';
 
 ####################### List All Tables ######################
@@ -108,4 +108,39 @@ INSERT INTO supplier (name, website, phone) VALUES
 ('Amazon','www.amazon.com','432-543-4343'),
 ('Ebay','www.ebay.com','945-456-4564');
 
+##################### Chemical ######################
 
+CREATE TABLE Chemical(
+	chemID SERIAL NOT NULL,
+	name TEXT NOT NULL UNIQUE,
+	molWeight REAL,
+	suppID integer,
+	CONSTRAINT pk_chemID PRIMARY KEY (chemID),
+	CONSTRAINT fk_suppID FOREIGN KEY (suppID)
+	REFERENCES supplier(suppID) ON DELETE CASCADE
+);
+
+INSERT INTO chemical (name, molWeight, suppID) VALUES
+('Lithium Sulfide',45.95, 1),
+('NewChemical',60,1),
+('VeryNewChem',65.5, 1),
+('Lithium Carbonate',65.32,2),
+('Lithium Something',56,3),
+('Crabonate Somth',64,4),
+('1,3-Dioxolane',74.08,1),
+('Acetone',58.08,7),
+('Ammonium Chloride',53.49,6),
+('1,2-Dimethoxyethane (DME)',90.12,1),
+('Dimethyl Carbonate (DMC)',90.08,2),
+('Ethylene Carbonate (EC)',88.06,3),
+('Lithium Chloride',42.39,5);
+
+(36,'Lithium Nitrate','7790-69-4',68.95,2.3800,NULL),
+(37,'Water Deionized','7732-18-5',18.02,1.0000,NULL),
+(13,'Lithium Malonate','4564-456',50,1.3000,'comment #1'),
+(14,'Lithium Phosphate','456-987',65,1.2300,'comment #5'),
+(15,'Lithium Hydroxide','456654-78',68,3.2100,'comment #17'),
+(22,'Sulfur','456-312',32.07,2.0100,''),
+(23,'Lithium','123-312',7.98,2.1000,''),
+(24,'Novel Chem','456-456',35,1.0200,''),
+(25,'Chemical#5','456-645',54.45,1.1000,'');
