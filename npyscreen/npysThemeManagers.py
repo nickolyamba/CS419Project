@@ -64,6 +64,7 @@ class ThemeManager(object):
         'VERYGOOD'    : 'BLACK_GREEN',
         'CAUTION'     : 'YELLOW_BLACK',
         'CAUTIONHL'   : 'BLACK_YELLOW',
+		'ERROR': 'RED_WHITE', 
     }
     def __init__(self):
         #curses.use_default_colors()
