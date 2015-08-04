@@ -157,18 +157,17 @@ class Database(object):
 	def edit_record(self, table_name, set_dict, where_dict):
 		edited_row_id = 0
 		cur = self.conn.cursor()
-		
 		# create tuple containing values
 		#return_dict = {}
 		#for x in where_dict.keys(): return_dict[x] = AsIs(x)
 		table_dict = {'table': AsIs(table_name)}
-		data_tup = table_dict.values() + set_dict.values() + where_dict.values()
+		data_list = table_dict.values() + set_dict.values() + where_dict.values()
 		
 		# http://stackoverflow.com/questions/11517106
-		query  = 'UPDATE %s SET {0} WHERE {1}'.format(', '.join('{0}=%s'.format(k) for k in set_dict), 
-																								', '.join('{0}=%s'.format(k) for k in where_dict))
+		query  = 'UPDATE %s SET {0} WHERE {1}'.format(', '.join('{0}=%s'.format(col) for col in set_dict), 
+																								', '.join('{0}=%s'.format(col) for col in where_dict))
 		try:
-			cur.execute(query, data_tup)
+			cur.execute(query, data_list)
 			self.conn.commit()
 			#edited_row_id = cur.fetchone()[0]
 		except Exception, ex:
@@ -179,7 +178,30 @@ class Database(object):
 				return str(ex), False
 		
 		return edited_row_id, True
-	
+		
+	def delete_record(self, table_name, where_dict):
+		cur = self.conn.cursor()
+		
+		deleted_row = []
+		table_name = AsIs(table_name)
+		table_dict = {'table': table_name}
+		data_list =  table_dict.values() + where_dict.values()
+		
+		query  = 'DELETE FROM %s WHERE {0} RETURNING *'.format(', '.join('{0}=%s'.format(col) for col in where_dict))
+		try:
+			cur.execute(query, data_list)
+			self.conn.commit()
+			deleted_row = cur.fetchone()
+		except Exception, ex:
+			self.conn.rollback()
+			if hasattr(ex, 'pgerror'): 
+				return ex.pgerror, False
+			else:
+				return str(ex), False
+			
+		return deleted_row, True
+		
+		
 	def closeConn(self):
 		self.conn.close()
 
@@ -246,6 +268,20 @@ class TableList(npyscreen.MultiLineAction):
     def actionHighlighted(self, act_on_this, keypress):
 		# get name of selected table
 		selectedTableName = act_on_this[0]
+		
+		# reset Main App From objects
+		del self.parent.parentApp.myGridSet
+		self.parent.parentApp.myGridSet = GridSettings()
+		
+		del self.parent.parentApp.selTableF
+		self.parent.parentApp.selTableF = self.parent.parentApp.addForm('MAIN', TableListDisplay, name='Select Table')
+		
+		del self.parent.parentApp.tabMenuF
+		self.parent.parentApp.tabMenuF = self.parent.parentApp.addForm('Menu', TableMenuForm)
+		
+		del self.parent.parentApp.GridSetF
+		self.parent.parentApp.GridSetF = self.parent.parentApp.addForm('GridSet', GridSetForm, name='Pagination Settings')
+		
 		# save the name of selected table in settings object
 		self.parent.parentApp.myGridSet.table = selectedTableName
 		# initialize TableMenuForm object attributes and switch to TableMenuForm
@@ -302,6 +338,8 @@ class TableOptionList(npyscreen.MultiLineAction):
 		elif selection == 'Pagination Settings':
 			self.parent.parentApp.GridSetF.columns_list = self.parent.parentApp.tabMenuF.columns_list
 			self.parent.parentApp.switchForm('GridSet')
+		elif selection == 'Select Another Table':
+			self.parent.parentApp.switchForm('MAIN')
 		elif selection == 'Exit Application':
 			self.parent.parentApp.tabMenuF.exit_application()
 		else:
@@ -321,13 +359,19 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 	# Create Widgets
 	def create(self):
 		self.nextrely += 1
-		self.action = self.add(TableOptionList, max_height=6,
+		self.action = self.add(TableOptionList, max_height=4,
 									    name='Select Action',
-										values = ['Add Row', 'Pagination Settings', 'Exit Application'],
+										values = ['Add Row', 'Pagination Settings', 'Exit Application', 'Select Another Table'],
 										scroll_exit = True
 										 # Let the user move out of the widget by pressing 
 										# the down arrow instead of tab.  Try it without to see the difference.
 										)
+		self.nextrely += 1
+		
+		# feedback textbox
+		self.feedback = self.add(npyscreen.MultiLineEdit, editable = False, name = ' ', relx = 15, begin_entry_at = 1, max_height=4)
+		#self.nextrely += 1
+		
 		# buttons
 		self.bn_prev = self.add(npyscreen.ButtonPress, name = "Prev", max_height=1, relx = 35)
 		self.bn_prev.whenPressed = self.redrawPrev # button press handler
@@ -343,26 +387,77 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 		self.m1.addItemsFromList([
             ("Edit Row", self.set_edit_form, "^E"),
             ("Delete Row", self.confirm_delete, "^D"),
-            #("Exit Application", self.exit_application, "^Q"),
+            ("Exit Menu", self.exit_menu, "^Q"),
         ])
 
 		# create Grid widget  and setup handler for Enter btn press
 		self.myGrid =  self.add(MyGrid, col_titles = [], select_whole_line = True)
 		# set grid handler for Enter press. source: https://goo.gl/e9wkYu
-		grid_handler = {curses.ascii.LF: self.root_menu}
-		self.myGrid.add_handlers(grid_handler)
+		#grid_handler = {curses.ascii.LF : self.root_menu}
+		#delete_handler = {curses.ascii.DEL : self.confirm_delete}
+		self.myGrid.add_handlers({curses.ascii.LF: self.root_menu, 
+													curses.ascii.DEL: self.root_menu})
 
 		# define exit on Esc
 		self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.exit_application
-
+	
+	def exit_menu(self):
+		self.h_exit_escape(None)
+	
 	# called on Delete press in popup menu
 	def confirm_delete(self):
 		# http://npyscreen.readthedocs.org/messages.html?highlight=yes_no#selectFile
 		isDelete = npyscreen.notify_yes_no("Confirm to delete the row?", title="Confirm Deletion", form_color='STANDOUT', wrap=True, editw = 0)
-		if isDelete == True:
-			pass
-		else:
-			pass
+		if isDelete:
+			# dict for where clause of SQL statement (contains primary key:value pairs)
+			where_dict = {} 
+			row_num = self.myGrid.edit_cell[0]
+			for col, col_value in zip(self.parentApp.myGridSet.columns_list, self.myGrid.values[row_num]):
+				if  col.primary_key:
+					where_dict[col.name] = col_value
+			# delete row
+			del_row_data, isSuccess = self.parentApp.myDatabase.delete_record(self.parentApp.myGridSet.table, where_dict)
+			# give feedback
+			if isSuccess:
+				del_data_dict = {}
+				for col, col_value in zip(self.parentApp.myGridSet.columns_list, del_row_data):
+					del_data_dict[col.name] = col_value
+				self.feedback.value  = "Deleted succesfully. " + str(del_data_dict).strip("{}'\0")
+				self.feedback.color = 'SAFE'
+				# update myGrid and screen
+				self.update_grid()
+			else:
+				self.feedback.value  = str(del_row_data)
+				self.feedback.color = 'ERROR'
+			# make feedback visible
+			self.feedback.hidden = False
+			self.display()
+			# set times to hide the feedback
+			t = Timer(FEEDBACK_TIMEOUT, self.hideFeedback)
+			t.start()
+			
+	def update_grid(self):
+		# reset Grid
+		self.limit = self.parentApp.myGridSet.limit
+		# reset offset and update it
+		#self.parentApp.myGridSet.offset = 0
+		self.offset = self.parentApp.myGridSet.offset
+		# update sorting order and column to sort on
+		self.sort_direction = self.parentApp.myGridSet.sort_direction
+		self.sort_column = self.parentApp.myGridSet.sort_column
+		if self.sort_column == '':
+				self.sort_column = self.parentApp.myGridSet.columns_list[0].name
+		# reset Grid
+		del self.myGrid.values [:]
+		# query rows from database to populate grid
+		self.rows = self.parentApp.myDatabase.list_records(self.parentApp.myGridSet.table, self.sort_column, self.sort_direction, self.offset, self.limit)
+		for row in self.rows:
+			self.myGrid.values.append(row)
+		self.parentApp.myGridSet.rows = self.rows
+	
+	def hideFeedback(self):
+		self.feedback.hidden = True
+		self.display()
 	
 	# called on Edit press in popup menu
 	def set_edit_form(self):
@@ -731,7 +826,7 @@ class EditRowForm(npyscreen.ActionForm):
 			else:
 				precision = ''
 			if  col.primary_key:
-				isNull = "PRIM KEY"
+				isNull = "PRIM KEY" # since if primary, then NOT NULL
 				self.prim_key_list.append(col.name)
 			else:
 				isNull = col.nullable
@@ -746,6 +841,7 @@ class EditRowForm(npyscreen.ActionForm):
 		self.bn_edit.whenPressed = self.editRow # button press handler
 		#self.nextrely += 1
 		
+		# feedback textbox
 		self.feedback = self.add(npyscreen.MultiLineEdit, editable = False, name = ' ', relx = 15, begin_entry_at = 1, max_height=4)
 		self.nextrely += 1
 		
@@ -786,15 +882,15 @@ class EditRowForm(npyscreen.ActionForm):
 				if col.name in self.prim_key_list:
 					where_dict[col.name] = col_value
 		# edit row
-		self.row_id, isSuccess = self.parentApp.myDatabase.edit_record(self.parentApp.myGridSet.table, col_dict, where_dict)
+		row_id, isSuccess = self.parentApp.myDatabase.edit_record(self.parentApp.myGridSet.table, col_dict, where_dict)
 		# give feedback
 		if isSuccess:
-			self.feedback.value  = "Edited Row. " + self.prim_key_list[0] + ": " + str(self.row_id)
+			self.feedback.value  = "Row has been edited  succesfully " + self.prim_key_list[0] + ": " + str(row_id)
 			self.feedback.color = 'SAFE'
 			# update myGrid and screen
 			self.update_grid()
 		else:
-			self.feedback.value  = str(self.row_id)
+			self.feedback.value  = str(row_id)
 			self.feedback.color = 'ERROR'
 		# make feedback visible
 		self.feedback.hidden = False
@@ -820,6 +916,7 @@ class EditRowForm(npyscreen.ActionForm):
 		self.rows = self.parentApp.myDatabase.list_records(self.parentApp.myGridSet.table, self.sort_column, self.sort_direction, self.offset, self.limit)
 		for row in self.rows:
 			self.myGrid.values.append(row)
+		self.parentApp.myGridSet.rows = self.rows
 	
 	'''**************************************************************************
 	Function redrawNext
