@@ -15,10 +15,14 @@ import sys
 import itertools
 import datetime
 from decimal import Decimal
+from threading import Timer
+import time
 
 from sqlalchemy import create_engine, MetaData, Table, Column, ForeignKey
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import sessionmaker
+
+FEEDBACK_TIMEOUT = 6
 
 # http://stackoverflow.com/questions/2146705/select-datatype-of-the-field-in-postgres - datatypes fields
 # $mysqli = new mysqli("oniddb.cws.oregonstate.edu", "goncharn-db", $myPassword, "goncharn-db");
@@ -59,7 +63,8 @@ class Database(object):
 			print 'Error %s' % e
 			sys.exit(1)
 		#return  conn;
-		
+	
+	
 	# returns list of all tables in the database	
 	def list_all_tables(self):
 		cur = self.conn.cursor()
@@ -70,7 +75,8 @@ class Database(object):
 		tables = cur.fetchall()
 		cur.close()
 		return tables
-		
+	
+	
 	# returns list of all column names in the table	
 	def list_columns(self, table_name):
 		columns_list = []
@@ -115,13 +121,15 @@ class Database(object):
 			columns_list.append(column)
 			
 		return columns_list
-		
+	
+	
 	def list_records(self, table_name, sort_column, sort_direction, offset, limit):
 		cur = self.conn.cursor()
 		cur.execute("SELECT * from %s ORDER BY %s %s OFFSET %s LIMIT %s;", 
 						(AsIs(table_name), AsIs(sort_column), AsIs(sort_direction), offset, limit))
 		rows = cur.fetchall()
 		return rows
+	
 	
 	def add_record(self, table_name, dict, id_column):
 		new_row_id = 0
@@ -138,26 +146,37 @@ class Database(object):
 			self.conn.commit()
 		except Exception, ex:
 			self.conn.rollback()
-			return ex.pgerror, False	
+			#http://stackoverflow.com/questions/610883
+			if hasattr(ex, 'pgerror'): 
+				return ex.pgerror, False
+			else:
+				return str(ex), False
 		return new_row_id, True
 	
-	def edit_record(self, table_name, dict, id_column):
+	
+	def edit_record(self, table_name, set_dict, where_dict):
 		edited_row_id = 0
 		cur = self.conn.cursor()
 		
-		# get column names and values from the dictionary
-		# http://stackoverflow.com/questions/29461933
-		columns = dict.keys()
-		values = [dict[column] for column in columns]
+		# create tuple containing values
+		#return_dict = {}
+		#for x in where_dict.keys(): return_dict[x] = AsIs(x)
+		table_dict = {'table': AsIs(table_name)}
+		data_tup = table_dict.values() + set_dict.values() + where_dict.values()
 		
-		query  = 'UPDATE %s SET (%s) VALUES %s RETURNING %s'
+		# http://stackoverflow.com/questions/11517106
+		query  = 'UPDATE %s SET {0} WHERE {1}'.format(', '.join('{0}=%s'.format(k) for k in set_dict), 
+																								', '.join('{0}=%s'.format(k) for k in where_dict))
 		try:
-			cur.execute(query, (AsIs(table_name), AsIs(', '.join(columns)), tuple(values), AsIs(id_column)))
-			new_row_id = cur.fetchone()[0]
+			cur.execute(query, data_tup)
 			self.conn.commit()
+			#edited_row_id = cur.fetchone()[0]
 		except Exception, ex:
 			self.conn.rollback()
-			return ex.pgerror, False
+			if hasattr(ex, 'pgerror'): 
+				return ex.pgerror, False
+			else:
+				return str(ex), False
 		
 		return edited_row_id, True
 	
@@ -528,7 +547,7 @@ class AddRowForm(npyscreen.ActionForm):
 		#self.nextrely += 1
 		
 		self.feedback = self.add(npyscreen.MultiLineEdit, editable = False, name = ' ', hidden = False, relx = 15, begin_entry_at = 1, max_height=4)
-		self.nextrely += 2
+		self.nextrely += 1
 		
 		self.bn_prev = self.add(npyscreen.ButtonPress, name = "Prev", max_height=1, relx = 35)
 		self.bn_prev.whenPressed = self.redrawPrev # button press handler
@@ -578,10 +597,16 @@ class AddRowForm(npyscreen.ActionForm):
 				self.dict[col.name].value = ''
 			# update myGrid and screen
 			self.update_grid()
-			self.display()
 		else:
 			self.feedback.value  = str(self.row_id)
 			self.feedback.color = 'ERROR'
+		
+		# make feedback visible
+		self.feedback.hidden = False
+		self.display()
+		# set times to hide the feedback
+		t = Timer(FEEDBACK_TIMEOUT, self.hideFeedback)
+		t.start()
 		
 	def update_grid(self):
 		# reset Grid
@@ -657,11 +682,11 @@ class AddRowForm(npyscreen.ActionForm):
 		for row in self.rows:
 			self.myGrid.values.append(row)
 		self.display()
-	'''				
-	for col in self.parentApp.myGridSet.columns_list:
-	cur.execute('INSERT INTO %s (day, elapsed_time, net_time, length, average_speed, geometry) VALUES (%s, %s, %s, %s, %s, %s)', 
-	(escaped_name, day, time_length, time_length_net, length_km, avg_speed, myLine_ppy))
-	'''
+		
+	def hideFeedback(self):
+		self.feedback.hidden = True
+		self.display()
+	
 	def exit_form(self):
 		self.parentApp.setNextFormPrevious()
 		self.parentApp.switchFormNow()
@@ -675,9 +700,9 @@ class EditRowForm(npyscreen.ActionForm):
 	def afterEditing(self):
 		#for column in self.parentApp.myGridSet.columns_list
 		# set Grid Settings to Default
-		self.parentApp.myGridSet.offset = 0
-		self.parentApp.myGridSet.sort_direction = 'ASC'
-		self.parentApp.myGridSet.limit = 5
+		#self.parentApp.myGridSet.offset = 0
+		#self.parentApp.myGridSet.sort_direction = 'ASC'
+		#self.parentApp.myGridSet.limit = 5
 		self.parentApp.setNextFormPrevious()
 	
 	def create(self):
@@ -717,12 +742,12 @@ class EditRowForm(npyscreen.ActionForm):
 		self.nextrely += 1
 		
 		# buttons
-		self.bn_add = self.add(npyscreen.ButtonPress, name = "Edit Row", max_height=1, relx = 15)
-		self.bn_add.whenPressed = self.editRow # button press handler
+		self.bn_edit = self.add(npyscreen.ButtonPress, name = "Edit Row", max_height=1, relx = 25)
+		self.bn_edit.whenPressed = self.editRow # button press handler
 		#self.nextrely += 1
 		
-		self.feedback = self.add(npyscreen.MultiLineEdit, editable = False, name = ' ', hidden = False, relx = 15, begin_entry_at = 1, max_height=4)
-		self.nextrely += 2
+		self.feedback = self.add(npyscreen.MultiLineEdit, editable = False, name = ' ', relx = 15, begin_entry_at = 1, max_height=4)
+		self.nextrely += 1
 		
 		self.bn_prev = self.add(npyscreen.ButtonPress, name = "Prev", max_height=1, relx = 35)
 		self.bn_prev.whenPressed = self.redrawPrev # button press handler
@@ -748,41 +773,49 @@ class EditRowForm(npyscreen.ActionForm):
 				self.myGrid.values.append(row)
 			
 			# set current values of the fields
-			row_num = self.parentApp.myGridSet.edit_cell[0]
-			for col, col_value in zip(self.parentApp.myGridSet.columns_list, self.parentApp.tabMenuF.myGrid.values[row_num]):
+			self.row_num = self.parentApp.myGridSet.edit_cell[0]
+			for col, col_value in zip(self.parentApp.myGridSet.columns_list, self.parentApp.tabMenuF.myGrid.values[self.row_num]):
 				self.dict[col.name].value = str(col_value)#str(self.parentApp.tabMenuF.myGrid.values[row_num][count])
 	
 	def editRow(self):
 		col_dict = {}
-		for col in self.parentApp.myGridSet.columns_list:
-			value = self.parentApp.cast_string(str(col.type),  self.dict[col.name].value)
-			col_dict[col.name] = value
-		# add row
-		self.row_id, isSuccess = self.parentApp.myDatabase.add_record(self.parentApp.myGridSet.table, col_dict, self.prim_key_list[0])
+		where_dict = {}
+		for col, col_value in zip(self.parentApp.myGridSet.columns_list, self.parentApp.tabMenuF.myGrid.values[self.row_num]):
+				if self.dict[col.name].value != str(col_value):
+					col_dict[col.name] = self.parentApp.cast_string(str(col.type),  self.dict[col.name].value)
+				if col.name in self.prim_key_list:
+					where_dict[col.name] = col_value
+		# edit row
+		self.row_id, isSuccess = self.parentApp.myDatabase.edit_record(self.parentApp.myGridSet.table, col_dict, where_dict)
 		# give feedback
 		if isSuccess:
-			self.feedback.value  = "Added Row. " + self.prim_key_list[0] + ": " + str(self.row_id)
+			self.feedback.value  = "Edited Row. " + self.prim_key_list[0] + ": " + str(self.row_id)
 			self.feedback.color = 'SAFE'
 			# update myGrid and screen
 			self.update_grid()
-			self.display()
 		else:
 			self.feedback.value  = str(self.row_id)
 			self.feedback.color = 'ERROR'
+		# make feedback visible
+		self.feedback.hidden = False
+		self.display()
+		# set times to hide the feedback
+		t = Timer(FEEDBACK_TIMEOUT, self.hideFeedback)
+		t.start()
 	
 	def update_grid(self):
 		# reset Grid
 		self.limit = self.parentApp.myGridSet.limit
 		# reset offset and update it
-		self.parentApp.myGridSet.offset = 0
-		self.parentApp.myGridSet.sort_direction = 'DESC'
+		#self.parentApp.myGridSet.offset = 0
 		self.offset = self.parentApp.myGridSet.offset
 		# update sorting order and column to sort on
 		self.sort_direction = self.parentApp.myGridSet.sort_direction
-		self.parentApp.myGridSet.sort_column = self.prim_key_list[0]
 		self.sort_column = self.parentApp.myGridSet.sort_column
+		if self.sort_column == '':
+				self.sort_column = self.parentApp.myGridSet.columns_list[0].name
 		# reset Grid
-		self.myGrid.values = []
+		del self.myGrid.values [:]
 		# query rows from database to populate grid
 		self.rows = self.parentApp.myDatabase.list_records(self.parentApp.myGridSet.table, self.sort_column, self.sort_direction, self.offset, self.limit)
 		for row in self.rows:
@@ -844,11 +877,11 @@ class EditRowForm(npyscreen.ActionForm):
 		for row in self.rows:
 			self.myGrid.values.append(row)
 		self.display()
-	'''				
-	for col in self.parentApp.myGridSet.columns_list:
-	cur.execute('INSERT INTO %s (day, elapsed_time, net_time, length, average_speed, geometry) VALUES (%s, %s, %s, %s, %s, %s)', 
-	(escaped_name, day, time_length, time_length_net, length_km, avg_speed, myLine_ppy))
-	'''
+	
+	def hideFeedback(self):
+		self.feedback.hidden = True
+		self.display()
+	
 	def exit_form(self):
 		self.parentApp.setNextFormPrevious()
 		self.parentApp.switchFormNow()
@@ -975,64 +1008,6 @@ class MyApplication(npyscreen.NPSAppManaged):
 		elif data_type == 'datetime':
 			value = datetime.datetime.strptime(string_val, '%Y/%m/%d %H:%M:%S.%f')
 		return value
-	
-	'''**************************************************************************
-	Function redrawNext
-
-	Purpose:  Handler for "Next Button".  
-	Implements Next Pagination by fetching next range of records from the database
-	***************************************************************************'''			
-	def redrawNext(self, Grid):
-		# intialize query attributes from settings object
-		self.limit = self.myGridSet.limit
-		# update offset
-		new_offset = self.myGridSet.offset + self.limit
-		self.myGridSet.offset = new_offset
-		self.offset = self.myGridSet.offset
-		# update sorting order and column to sort on
-		self.sort_direction = self.myGridSet.sort_direction
-		self.sort_column = self.myGridSet.sort_column
-		# when called with default settings
-		if self.sort_column == '':
-				self.sort_column = self.myGridSet.columns_list[0].name
-		# reset Grid
-		Grid.values = []
-		# query rows from database to populate grid
-		self.rows = self.myDatabase.list_records(self.myGridSet.table, self.sort_column, self.sort_direction, self.offset, self.limit)
-		for row in self.rows:
-			Grid.values.append(row)
-	
-	
-	'''**************************************************************************
-	Function redrawPrev
-
-	Purpose:  Handler for "Prev Button".  
-	Implements Previous Pagination by fetching previous range of records from the database
-	***************************************************************************'''		
-	def redrawPrev(self):
-		# intialize query attributes from settings object
-		table_name = self.myGridSet.table
-		limit = self.myGridSet.limit
-		# update offset
-		new_offset = self.myGridSet.offset - limit
-		# don't allow to fetch for negative row numbers
-		if new_offset < 0:
-			self.myGridSet.offset = 0
-		else:
-			self.myGridSet.offset = new_offset
-		offset = self.myGridSet.offset
-		sort_direction =  self.myGridSet.sort_direction
-		sort_column = self.myGridSet.sort_column
-		# when called with default settings
-		if sort_column == '':
-				if len(self.myGridSet.columns_list) > 0:
-					sort_column = self.myGridSet.columns_list[0].name
-		# query rows from database to populate grid
-		obj.myGrid.values = []
-		rows = self.myDatabase.list_records(table_name, sort_column, sort_direction, offset, limit)
-		for row in rows:
-			obj.myGrid.values.append(row)
-		obj.display()
 
 if __name__ == '__main__':
     MyApplication().run()
