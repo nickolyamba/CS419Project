@@ -22,7 +22,7 @@ from sqlalchemy import create_engine, MetaData, Table, Column, ForeignKey
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import sessionmaker
 
-FEEDBACK_TIMEOUT = 6
+FEEDBACK_TIMEOUT = 6 # displayed when out of form too - bug
 
 # http://stackoverflow.com/questions/2146705/select-datatype-of-the-field-in-postgres - datatypes fields
 # $mysqli = new mysqli("oniddb.cws.oregonstate.edu", "goncharn-db", $myPassword, "goncharn-db");
@@ -164,12 +164,13 @@ class Database(object):
 		data_list = table_dict.values() + set_dict.values() + where_dict.values()
 		
 		# http://stackoverflow.com/questions/11517106
-		query  = 'UPDATE %s SET {0} WHERE {1}'.format(', '.join('{0}=%s'.format(col) for col in set_dict), 
-																								', '.join('{0}=%s'.format(col) for col in where_dict))
+		query  = 'UPDATE %s SET {0} WHERE {1} RETURNING {2}'.format(', '.join('{0}=%s'.format(col) for col in set_dict), 
+																								' AND '.join('{0}=%s'.format(col) for col in where_dict),
+																								', '.join('{0}'.format(AsIs(col)) for col in where_dict))
 		try:
 			cur.execute(query, data_list)
 			self.conn.commit()
-			#edited_row_id = cur.fetchone()[0]
+			edited_row_id = cur.fetchone()
 		except Exception, ex:
 			self.conn.rollback()
 			if hasattr(ex, 'pgerror'): 
@@ -187,7 +188,7 @@ class Database(object):
 		table_dict = {'table': table_name}
 		data_list =  table_dict.values() + where_dict.values()
 		
-		query  = 'DELETE FROM %s WHERE {0} RETURNING *'.format(', '.join('{0}=%s'.format(col) for col in where_dict))
+		query  = 'DELETE FROM %s WHERE {0} RETURNING *'.format(' AND '.join('{0}=%s'.format(col) for col in where_dict))
 		try:
 			cur.execute(query, data_list)
 			self.conn.commit()
@@ -269,7 +270,8 @@ class TableList(npyscreen.MultiLineAction):
 		# get name of selected table
 		selectedTableName = act_on_this[0]
 		
-		# reset Main App From objects
+		# reset Main App Form objects
+		del self.parent.parentApp.myGridSet.columns_list [:]
 		del self.parent.parentApp.myGridSet
 		self.parent.parentApp.myGridSet = GridSettings()
 		
@@ -361,7 +363,7 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 		self.nextrely += 1
 		self.action = self.add(TableOptionList, max_height=4,
 									    name='Select Action',
-										values = ['Add Row', 'Pagination Settings', 'Exit Application', 'Select Another Table'],
+										values = ['Add Row', 'Pagination Settings', 'Select Another Table', 'Exit Application'],
 										scroll_exit = True
 										 # Let the user move out of the widget by pressing 
 										# the down arrow instead of tab.  Try it without to see the difference.
@@ -395,8 +397,7 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 		# set grid handler for Enter press. source: https://goo.gl/e9wkYu
 		#grid_handler = {curses.ascii.LF : self.root_menu}
 		#delete_handler = {curses.ascii.DEL : self.confirm_delete}
-		self.myGrid.add_handlers({curses.ascii.LF: self.root_menu, 
-													curses.ascii.DEL: self.root_menu})
+		self.myGrid.add_handlers({curses.ascii.LF: self.root_menu})
 
 		# define exit on Esc
 		self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.exit_application
@@ -526,19 +527,20 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 		
 	def beforeEditing(self):
 		# if were able to set value for self.selectTable
+		#self.parentApp.resetHistory()
 		if self.table_name:
 			self.name = "Table '%s'" % self.table_name
 			
 			# Get list of Column objects when the page is opened for the first time
 			# Otherwise, just update the grid values
-			if not self.parentApp.myGridSet.columns_list:
+			if not self.parentApp.myGridSet.columns_list or self.parentApp.myGridSet.table != self.table_name:
 				self.columns_list = self.parentApp.myDatabase.list_columns(self.table_name)
 				# Save Table properties in the myGridSet
-				del self.parentApp.myGridSet.columns_list[:]
+				self.parentApp.myGridSet.columns_list = []
 				for col in self.columns_list:
 					self.parentApp.myGridSet.columns_list.append(col)
 				# add column titles to the Grid
-				del self.myGrid.col_titles [:]
+				self.myGrid.col_titles  = []
 				for col in self.columns_list:
 					self.myGrid.col_titles.append(col.name)
 			
@@ -588,16 +590,10 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 *********************************************************'''
 class AddRowForm(npyscreen.ActionForm):
 	def afterEditing(self):
-		#for column in self.parentApp.myGridSet.columns_list
-		# set Grid Settings to Default
-		self.parentApp.myGridSet.offset = 0
-		self.parentApp.myGridSet.sort_direction = 'ASC'
-		self.parentApp.myGridSet.limit = 5
-		# AddRowForm Object cleanup
-		#del self.prim_key_list [:]
-		#for col in self.parentApp.myGridSet.columns_list:
-		#	del self.dict[col.name]
-		#self.dict.clear()
+		# if timer is set, cancel
+		if self.timer:
+			self.timer.cancel()
+		self.timer.cancel() # cancel timer
 		self.parentApp.setNextFormPrevious()
 	
 	def create(self):
@@ -613,6 +609,7 @@ class AddRowForm(npyscreen.ActionForm):
 				isNull = "PRIM KEY"
 			self.dict[col_name] = self.add(npyscreen.TitleText, name = col_name + " " + col_type + " "+isNull, begin_entry_at = 30) 
 		'''
+		self.timer = None
 		self.prim_key_list = []
 		# generate dict to hold widget objects
 		self.dict = {}
@@ -659,13 +656,20 @@ class AddRowForm(npyscreen.ActionForm):
 		self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.exit_form
 	
 	def beforeEditing(self):
-			# display cached Grid
-			self.myGrid.values = []
-			row = []
-			for col in self.parentApp.myGridSet.columns_list:
-				self.myGrid.col_titles.append(col.name)
-			for row in self.parentApp.myGridSet.rows:
-				self.myGrid.values.append(row)
+		# display cached Grid
+		self.myGrid.values = []
+		self.myGrid.col_titles = []
+		row = []
+		for col in self.parentApp.myGridSet.columns_list:
+			self.myGrid.col_titles.append(col.name)
+		for row in self.parentApp.myGridSet.rows:
+			self.myGrid.values.append(row)
+		''' for debuging
+		list = []
+		for col in self.parentApp.myGridSet.columns_list:
+			list.append(col.name)
+		self.feedback.value = str(list)
+		'''
 	
 	def addRow(self):
 		col_dict = {}
@@ -699,9 +703,11 @@ class AddRowForm(npyscreen.ActionForm):
 		# make feedback visible
 		self.feedback.hidden = False
 		self.display()
+		if self.timer:
+			self.timer.cancel()
 		# set times to hide the feedback
-		t = Timer(FEEDBACK_TIMEOUT, self.hideFeedback)
-		t.start()
+		self.timer = Timer(FEEDBACK_TIMEOUT, self.hideFeedback)
+		self.timer.start()
 		
 	def update_grid(self):
 		# reset Grid
@@ -786,6 +792,7 @@ class AddRowForm(npyscreen.ActionForm):
 		self.parentApp.setNextFormPrevious()
 		self.parentApp.switchFormNow()
 
+
 '''*********************************************************
    Class EditRowForm inherits ActionForm class
    
@@ -793,26 +800,14 @@ class AddRowForm(npyscreen.ActionForm):
 *********************************************************'''
 class EditRowForm(npyscreen.ActionForm):
 	def afterEditing(self):
-		#for column in self.parentApp.myGridSet.columns_list
-		# set Grid Settings to Default
-		#self.parentApp.myGridSet.offset = 0
-		#self.parentApp.myGridSet.sort_direction = 'ASC'
-		#self.parentApp.myGridSet.limit = 5
+		# if timer is set, cancel
+		if self.timer:
+			self.timer.cancel()
 		self.parentApp.setNextFormPrevious()
 	
 	def create(self):
-		# http://stackoverflow.com/questions/4010840
-	 	'''
-		self.datatable = self.parentApp.alchemy.get_datatable(self.parentApp.myGridSet.table)
-		for c in self.datatable.c:
-			k = str(c).split('.')
-			col_name = k[1]
-			col_type = str(c.type)
-			isNull = "NULL DEF" if c.nullable  else "NOT NULL"
-			if  c.primary_key:
-				isNull = "PRIM KEY"
-			self.dict[col_name] = self.add(npyscreen.TitleText, name = col_name + " " + col_type + " "+isNull, begin_entry_at = 30) 
-		'''
+		self.timer = None
+		self.edit_from_self = False
 		self.prim_key_list = []
 		# generate dict to hold widget objects
 		self.dict = {}
@@ -842,7 +837,7 @@ class EditRowForm(npyscreen.ActionForm):
 		#self.nextrely += 1
 		
 		# feedback textbox
-		self.feedback = self.add(npyscreen.MultiLineEdit, editable = False, name = ' ', relx = 15, begin_entry_at = 1, max_height=4)
+		self.feedback = self.add(npyscreen.MultiLineEdit, editable = False, hidden = True, name = ' ', relx = 15, begin_entry_at = 1, max_height=4)
 		self.nextrely += 1
 		
 		self.bn_prev = self.add(npyscreen.ButtonPress, name = "Prev", max_height=1, relx = 35)
@@ -855,37 +850,63 @@ class EditRowForm(npyscreen.ActionForm):
 		
 		# create Grid widget
 		self.myGrid =  self.add(MyGrid, col_titles = [], select_whole_line = True)
+		self.myGrid.add_handlers({curses.ascii.LF : self.edit_another_row})
 		
 		# define return on prev form on Esc
 		self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.exit_form
 	
-	def beforeEditing(self):
-			# display cached Grid
-			self.myGrid.values = []
-			row = []
-			for col in self.parentApp.myGridSet.columns_list:
-				self.myGrid.col_titles.append(col.name)
-			for row in self.parentApp.myGridSet.rows:
-				self.myGrid.values.append(row)
-			
-			# set current values of the fields
-			self.row_num = self.parentApp.myGridSet.edit_cell[0]
-			for col, col_value in zip(self.parentApp.myGridSet.columns_list, self.parentApp.tabMenuF.myGrid.values[self.row_num]):
-				self.dict[col.name].value = str(col_value)#str(self.parentApp.tabMenuF.myGrid.values[row_num][count])
+	def edit_another_row(self, *args, **keywords):
+		self.edit_from_self = True
+		# set current values of the fields
+		self.row_num = self.myGrid.edit_cell[0]
+		for col, col_value in zip(self.parentApp.myGridSet.columns_list, self.myGrid.values[self.row_num]):
+			self.dict[col.name].value = str(col_value)
+		self.display()
 	
-	def editRow(self):
-		col_dict = {}
-		where_dict = {}
+	def beforeEditing(self):
+		# display cached Grid
+		# reset attributes
+		self.edit_from_self = False
+		self.myGrid.values = []
+		self.myGrid.col_titles = []
+		row = []
+		for col in self.parentApp.myGridSet.columns_list:
+			self.myGrid.col_titles.append(col.name)
+		for row in self.parentApp.myGridSet.rows:
+			self.myGrid.values.append(row)
+		
+		# set current values of the fields
+		self.row_num = self.parentApp.myGridSet.edit_cell[0]
 		for col, col_value in zip(self.parentApp.myGridSet.columns_list, self.parentApp.tabMenuF.myGrid.values[self.row_num]):
-				if self.dict[col.name].value != str(col_value):
-					col_dict[col.name] = self.parentApp.cast_string(str(col.type),  self.dict[col.name].value)
-				if col.name in self.prim_key_list:
-					where_dict[col.name] = col_value
+			self.dict[col.name].value = str(col_value)
+		'''
+		list = []
+		for col in self.parentApp.myGridSet.columns_list:
+			list.append(col.name)
+		self.feedback.value = str(list)
+		'''
+	def editRow(self):
+		col_dict = {} # dict containing changed columns
+		where_dict = {} # dict containing primary keys
+		# if edited value selected in  self.parentApp.tabMenuF.myGrid
+		if not self.edit_from_self:
+			for col, col_value in zip(self.parentApp.myGridSet.columns_list, self.parentApp.tabMenuF.myGrid.values[self.row_num]):
+					if self.dict[col.name].value != str(col_value):
+						col_dict[col.name] = self.parentApp.cast_string(str(col.type),  self.dict[col.name].value)
+					if col.name in self.prim_key_list:
+						where_dict[col.name] = col_value
+		# if edited from inside (self.myGrid) via calling edit_another_row(self)
+		else:
+			for col, col_value in zip(self.parentApp.myGridSet.columns_list, self.myGrid.values[self.row_num]):
+					if self.dict[col.name].value != str(col_value):
+						col_dict[col.name] = self.parentApp.cast_string(str(col.type),  self.dict[col.name].value)
+					if col.name in self.prim_key_list:
+						where_dict[col.name] = col_value
 		# edit row
 		row_id, isSuccess = self.parentApp.myDatabase.edit_record(self.parentApp.myGridSet.table, col_dict, where_dict)
 		# give feedback
 		if isSuccess:
-			self.feedback.value  = "Row has been edited  succesfully " + self.prim_key_list[0] + ": " + str(row_id)
+			self.feedback.value  = "Row has been edited  succesfully. Returned: " + str(self.prim_key_list) + " = " + str(row_id)
 			self.feedback.color = 'SAFE'
 			# update myGrid and screen
 			self.update_grid()
@@ -895,9 +916,12 @@ class EditRowForm(npyscreen.ActionForm):
 		# make feedback visible
 		self.feedback.hidden = False
 		self.display()
-		# set times to hide the feedback
-		t = Timer(FEEDBACK_TIMEOUT, self.hideFeedback)
-		t.start()
+		# set time to hide the feedback
+		# if timer is set, cancel
+		if self.timer:
+			self.timer.cancel()
+		self.timer = Timer(FEEDBACK_TIMEOUT, self.hideFeedback)
+		self.timer.start()
 	
 	def update_grid(self):
 		# reset Grid
@@ -1061,16 +1085,32 @@ class MyApplication(npyscreen.NPSAppManaged):
 		# for the first time, create Add Row form
 		if self.NEXT_ACTIVE_FORM == 'Add Row':
 			self.add_row_count = self.add_row_count + 1
-			if self.add_row_count == 1:
-				self.addRowF = self.addForm('Add Row', AddRowForm, name='Add Row')
+			#if self.add_row_count == 1:
+			if hasattr(self, 'addRowF'):
+				del self.addRowF
+			self.addRowF = self.addForm('Add Row', AddRowForm, name='Add Row')
 		
 		# when app leavs Table Menu Form (obj tabMenuF)
 		# for the first time, create Edit Row form
-		if self.NEXT_ACTIVE_FORM == 'Edit Row':
+		elif self.NEXT_ACTIVE_FORM == 'Edit Row':
 			self.edit_row_count = self.edit_row_count + 1
-			if self.edit_row_count == 1:
-				self.editRowF = self.addForm('Edit Row', EditRowForm, name='Edit Row')
-	
+			#if self.edit_row_count == 1:
+			if hasattr(self, 'editRowF'):
+				del self.editRowF
+			self.editRowF = self.addForm('Edit Row', EditRowForm, name='Edit Row')
+		
+		elif self.NEXT_ACTIVE_FORM == 'Menu':
+			pass
+		'''
+		elif self.NEXT_ACTIVE_FORM == 'MAIN':
+			if hasattr(self, 'addRowF'):
+				del self.addRowF
+			if hasattr(self, 'editRowF'):
+				del self.editRowF
+			self.resetHistory()
+			for item in :
+				del self.dict[col.name]
+		'''
 	def onCleanExit(self):
 		self.myDatabase.closeConn()
 		

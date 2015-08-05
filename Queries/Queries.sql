@@ -144,3 +144,58 @@ INSERT INTO chemical (name, molWeight, suppID) VALUES
 (23,'Lithium','123-312',7.98,2.1000,''),
 (24,'Novel Chem','456-456',35,1.0200,''),
 (25,'Chemical#5','456-645',54.45,1.1000,'');
+
+
+##################### Solution ######################
+
+CREATE TABLE Solution(
+  solutionID SERIAL NOT NULL,
+  name TEXT NOT NULL,
+  CONSTRAINT pk_soluID PRIMARY KEY (solutionID)
+);
+
+INSERT INTO solution (name) VALUES
+('12M S as Li2S5 in water'),
+('1M LiTFSI in 1,3-Dioxolane'),
+('1M LiTFSI in EC:DMC (1:1)'),
+('1M LiTFSI in EC:DMC (1:1)'),
+('LiCl + NH4Cl in Dioxolane'),
+('1M Barium Cholride in water'),
+('2M Lithium Hydroxide in water'),
+('3M Li2S4 in water'),
+('3M Li2S4 in water-org solvent'),
+('1M Aluminum Sulfate in water')
+('12M S as Li2S5 in ethanol'),
+('1M LiTFSI in hydrozine'),
+('1M LiTFSI in ethylamine'),
+('1M LiTFSI in water)');
+
+##################### ChemSolution ######################
+
+CREATE TABLE chem_solu(
+  chemID integer NOT NULL REFERENCES chemical(chemID) ON UPDATE CASCADE ON DELETE CASCADE,
+  solutionID integer NOT NULL REFERENCES solution(solutionID) ON UPDATE CASCADE ON DELETE CASCADE,
+  volume numeric NOT NULL DEFAULT 1,
+  CONSTRAINT pk_chem_solu PRIMARY KEY (chemID, solutionID)
+);
+
+INSERT INTO chem_solu (chemID, solutionID, volume) VALUES
+(1, 1, 2),
+(1, 2, 10),
+(1, 3, 20),
+(1, 4, 16),
+(1, 5, 20),
+(1, 6, 25),
+(1, 7, 16),
+(1, 8, 14),
+(1, 9, 2),
+(7, 2, 5),
+(7, 3, 79),
+(9, 3, 25),
+(13, 1, 32),
+(22, 1, 45),
+(25, 3, 56),
+(27, 3, 2),
+(26, 6, 21),
+(4, 2, 4),
+(7, 4, 98);
