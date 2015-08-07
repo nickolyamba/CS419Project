@@ -11,12 +11,14 @@
 import npyscreen, curses
 import psycopg2
 from psycopg2.extensions import AsIs
+import _mysql
 import sys
 import itertools
 import datetime
 from decimal import Decimal
 from threading import Timer
 import time
+from mysqlDb import MysqlDB
 
 from sqlalchemy import create_engine, MetaData, Table, Column, ForeignKey
 from sqlalchemy.ext.automap import automap_base
@@ -62,7 +64,6 @@ class Database(object):
 				self.conn.rollback()
 			print 'Error %s' % e
 			sys.exit(1)
-		#return  conn;
 	
 	
 	# returns list of all tables in the database	
@@ -235,8 +236,12 @@ class GridSettings(object):
 		self.sort_column = ''
 		
 		self.columns_list = []
+		# contains all the fetched data (up to 10 rows of data)
 		self.rows = []
+		#location of the currently edited cell
 		self.edit_cell = []
+		
+		db_type = ''
 		
 
 
@@ -265,14 +270,16 @@ class DBList(npyscreen.MultiLineAction):
         super(DBList, self).__init__(*args, **keywords)
 
     def display_value(self, value):
-        return "%s" % (value)
+        return "%s" % value
     
     def actionHighlighted(self, act_on_this, keypress):
 		# get name of selected option
 		selection = act_on_this
 		if selection == 'MySQL':
+			self.parent.parentApp.myGridSet.db_type = 'MySQL'
 			self.parent.parentApp.switchForm('TableSelect')
 		elif selection == 'PostgreSQL':
+			self.parent.parentApp.myGridSet.db_type = 'PostgreSQL'
 			self.parent.parentApp.switchForm('TableSelect')
 		elif selection == 'Exit Application':
 			self.parent.parentApp.exit_application()
@@ -355,7 +362,10 @@ class TableListDisplay(npyscreen.FormMutt):
 	# populate wMain.values with list of tables in the database
 	def update_list(self):
 		self.wStatus1.value =  ' Select Table From List   '
-		self.wMain.values = self.parentApp.myDatabase.list_all_tables()
+		if self.parentApp.myGridSet.db_type == 'PostgreSQL':
+			self.wMain.values = self.parentApp.myDatabase.list_all_tables()
+		else:
+			self.wMain.values = self.parentApp.mySQLDb.list_all_tables()
 		self.wMain.relx= 3
 		self.wMain.display()
 
@@ -1146,8 +1156,9 @@ class MyApplication(npyscreen.NPSAppManaged):
 				del self.editRowF
 			self.editRowF = self.addForm('Edit Row', EditRowForm, name='Edit Row')
 		
-		elif self.NEXT_ACTIVE_FORM == 'Menu':
-			pass
+		elif self.NEXT_ACTIVE_FORM == 'TableSelect':
+			if self.myGridSet.db_type == 'MySQL':
+				self.mySQLDb = MysqlDB()
 		'''
 		elif self.NEXT_ACTIVE_FORM == 'TableSelect':
 			if hasattr(self, 'addRowF'):
