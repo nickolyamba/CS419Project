@@ -253,10 +253,55 @@ class MyGrid(npyscreen.GridColTitles):
     def custom_print_cell(self, actual_cell, cell_display_value):
         pass
 
+
+'''**************************************************
+   Class DBList inherits MultiLineAction class
+   
+   Purpose:  display list of actions that can be performed on 
+   the table, manages action on select
+**************************************************'''
+class DBList(npyscreen.MultiLineAction):
+    def __init__(self, *args, **keywords):
+        super(DBList, self).__init__(*args, **keywords)
+
+    def display_value(self, value):
+        return "%s" % (value)
+    
+    def actionHighlighted(self, act_on_this, keypress):
+		# get name of selected option
+		selection = act_on_this
+		if selection == 'MySQL':
+			self.parent.parentApp.switchForm('TableSelect')
+		elif selection == 'PostgreSQL':
+			self.parent.parentApp.switchForm('TableSelect')
+		elif selection == 'Exit Application':
+			self.parent.parentApp.exit_application()
+		else:
+			self.parent.parentApp.switchForm()
+		
+		
+'''**************************************************
+   Class DBSelect inherits ActionForm class
+   
+   Purpose:  Container for displaying of the dynamic list
+**************************************************'''
+class DBSelectForm(npyscreen.Form):
+# Create Widgets
+	def create(self):
+		self.action = self.add(DBList, max_height=3,
+									    name='Select Database Engine',
+										values = ['PostgreSQL', 'MySQL', 'Exit Application'],
+										scroll_exit = True)
+		self.nextrely += 1
+		
+		# define exit on Esc
+		self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.parentApp.exit_application
+
+		
 '''**************************************************
    Class TableList inherits MultiLineAction class
    
-   Purpose:  display list of tables as list and define an action
+   Purpose:  display list of tables as list and defines an action
    when one of the tables is selected 
 **************************************************'''
 class TableList(npyscreen.MultiLineAction):
@@ -276,7 +321,7 @@ class TableList(npyscreen.MultiLineAction):
 		self.parent.parentApp.myGridSet = GridSettings()
 		
 		del self.parent.parentApp.selTableF
-		self.parent.parentApp.selTableF = self.parent.parentApp.addForm('MAIN', TableListDisplay, name='Select Table')
+		self.parent.parentApp.selTableF = self.parent.parentApp.addForm('TableSelect', TableListDisplay, name='Select Table')
 		
 		del self.parent.parentApp.tabMenuF
 		self.parent.parentApp.tabMenuF = self.parent.parentApp.addForm('Menu', TableMenuForm)
@@ -290,11 +335,11 @@ class TableList(npyscreen.MultiLineAction):
 		self.parent.parentApp.getForm('Menu').table_name = selectedTableName
 		self.parent.parentApp.switchForm('Menu')
 
-		
+
 '''**************************************************
    Class TableListDisplay inherits FormMutt class
    
-   Purpose:  Container for displaying of the dynamic list
+   Purpose:  Container Form for displaying of the dynamic list
 **************************************************'''
 class TableListDisplay(npyscreen.FormMutt):
 	
@@ -341,7 +386,7 @@ class TableOptionList(npyscreen.MultiLineAction):
 			self.parent.parentApp.GridSetF.columns_list = self.parent.parentApp.tabMenuF.columns_list
 			self.parent.parentApp.switchForm('GridSet')
 		elif selection == 'Select Another Table':
-			self.parent.parentApp.switchForm('MAIN')
+			self.parent.parentApp.switchForm('TableSelect')
 		elif selection == 'Exit Application':
 			self.parent.parentApp.tabMenuF.exit_application()
 		else:
@@ -579,7 +624,7 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 		self.parentApp.switchFormNow()
 	
 	def on_cancel(self):
-		self.parentApp.switchForm('MAIN')
+		self.parentApp.switchForm('TableSelect')
 		self.parentApp.switchFormNow()
 
 
@@ -592,8 +637,7 @@ class AddRowForm(npyscreen.ActionForm):
 	def afterEditing(self):
 		# if timer is set, cancel
 		if self.timer:
-			self.timer.cancel()
-		self.timer.cancel() # cancel timer
+			self.timer.cancel()# cancel timer
 		self.parentApp.setNextFormPrevious()
 	
 	def create(self):
@@ -1027,29 +1071,28 @@ class GridSetForm(npyscreen.ActionForm):
 		self.nextrely += 1
 		self.columnWidget = self.add(npyscreen.TitleSelectOne, max_height=5,
 									    name='Order by',
-										#values = [],
 										scroll_exit = True
-										 # Let the user move out of the widget by pressing 
-										# the down arrow instead of tab.  Try it without to see the difference.
 										)
 		self.nextrely += 1
 		self.sortDirWidget = self.add(npyscreen.TitleSelectOne, max_height=6,
 									    name='Sort',
 										values = ['ASC', 'DESC'],
 										scroll_exit = True
-										 # Let the user move out of the widget by pressing 
-										# the down arrow instead of tab.  Try it without to see the difference.
 										)
 
 	def beforeEditing(self):
 		if self.columns_list:
 			del self.columnWidget.values [:]
+			# populate with column names
 			for col in self.columns_list:
 				self.columnWidget.values.append(col.name)
+			# set default settings
+			self.columnWidget.value = 0
+			self.sortDirWidget.value = 0
 	
 	def on_ok(self):
 		# limit number of rows per page to ten
-		if int(self.limitWidget.value) <= 10:
+		if int(self.limitWidget.value) <= 10 and int(self.limitWidget.value) >= 1:
 			self.parentApp.myGridSet.limit = int(self.limitWidget.value)
 		else:
 			self.parentApp.myGridSet.limit = 10
@@ -1071,7 +1114,9 @@ class MyApplication(npyscreen.NPSAppManaged):
 		self.myDatabase = Database()
 		self.alchemy = Alchemy() # works well, but too slow
 		self.myGridSet = GridSettings()
-		self.selTableF = self.addForm('MAIN', TableListDisplay, name='Select Table')
+		#self.selTableF = self.addForm('TableSelect', TableListDisplay, name='Select Table')
+		self.selDbF = self.addForm('MAIN', DBSelectForm, name = 'Select Database Engine')
+		self.selTableF = self.addForm('TableSelect', TableListDisplay, name='Select Table')
 		self.tabMenuF = self.addForm('Menu', TableMenuForm)
 		self.GridSetF = self.addForm('GridSet', GridSetForm, name='Pagination Settings')
 	
@@ -1082,7 +1127,8 @@ class MyApplication(npyscreen.NPSAppManaged):
 	***************************************************************************'''	
 	def onInMainLoop(self):
 		# when app leavs Table Menu Form (obj tabMenuF)
-		# for the first time, create Add Row form
+		# create Add Row form
+		# Delete the older version since widgets might be different
 		if self.NEXT_ACTIVE_FORM == 'Add Row':
 			self.add_row_count = self.add_row_count + 1
 			#if self.add_row_count == 1:
@@ -1091,7 +1137,8 @@ class MyApplication(npyscreen.NPSAppManaged):
 			self.addRowF = self.addForm('Add Row', AddRowForm, name='Add Row')
 		
 		# when app leavs Table Menu Form (obj tabMenuF)
-		# for the first time, create Edit Row form
+		# create Edit Row form. 
+		# Delete the older version since widgets might be different
 		elif self.NEXT_ACTIVE_FORM == 'Edit Row':
 			self.edit_row_count = self.edit_row_count + 1
 			#if self.edit_row_count == 1:
@@ -1102,7 +1149,7 @@ class MyApplication(npyscreen.NPSAppManaged):
 		elif self.NEXT_ACTIVE_FORM == 'Menu':
 			pass
 		'''
-		elif self.NEXT_ACTIVE_FORM == 'MAIN':
+		elif self.NEXT_ACTIVE_FORM == 'TableSelect':
 			if hasattr(self, 'addRowF'):
 				del self.addRowF
 			if hasattr(self, 'editRowF'):
@@ -1145,6 +1192,10 @@ class MyApplication(npyscreen.NPSAppManaged):
 		elif data_type == 'datetime':
 			value = datetime.datetime.strptime(string_val, '%Y/%m/%d %H:%M:%S.%f')
 		return value
+		
+	def exit_application(self):
+		self.switchForm(None)
+		self.switchFormNow()
 
 if __name__ == '__main__':
     MyApplication().run()
