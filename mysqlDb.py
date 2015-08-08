@@ -10,7 +10,8 @@
 import exceptions
 import sys
 import MySQLdb
-
+import itertools
+from column import Column
 
 '''**************************************************
 * Class Database inherits object class
@@ -46,29 +47,31 @@ class MysqlDB(object):
 		# get lists of column_name, type, charLen for CHAR, precision for numeric entries, nullable
 		query_string = "SELECT column_name, data_type, character_maximum_length, numeric_precision, is_nullable from information_schema.columns \
 										WHERE table_name = %s;"
-		cur.query(query_string, (table_name,))
+		cur.execute(query_string, (table_name,))
 		columns_tuple = cur.fetchall()
 		
-		# SHOW COLUMNS FROM address
-		cur.execute("SELECT a.attname FROM  pg_index i \
-			JOIN  pg_attribute a ON a.attrelid = i.indrelid \
-			AND a.attnum = ANY(i.indkey) \
-			WHERE  i.indrelid = %s::regclass \
-			AND  i.indisprimary;",  (table_name,))
-			
+		# http://stackoverflow.com/questions/12379221
+		cur.execute("SELECT k.COLUMN_NAME \
+			FROM information_schema.table_constraints t \
+			INNER JOIN information_schema.key_column_usage k \
+			USING ( constraint_name, table_schema, table_name )  \
+			WHERE t.constraint_type =  'PRIMARY KEY' \
+			AND t.table_name = %s;",  (table_name,))
+		# fetch list of primary keys	
 		columns_prim_tuple = cur.fetchall()
 		
 		cur.close()
+		
 		# traverese tuple of tuples to list of strings
 		# http://stackoverflow.com/questions/1663807
 		for col, col_prim in itertools.izip_longest(columns_tuple, columns_prim_tuple):
 			# create Column object
 			column = Column()
-			
+			# convert tuple item into string
 			col = list(col)
 			col[0] = col[0].strip("(),'")
 			
-			# col_prim is None, do not append, assign None
+			# col_prim is None, do not append assign None
 			if col_prim:
 				col_prim = list(col_prim)
 				col_prim[0] = col_prim[0].strip("(),'")
@@ -76,20 +79,21 @@ class MysqlDB(object):
 			else:
 				column.primary_key = ''
 			
+			# populate column object
 			column.name = col[0]
 			column.type = col[1]
 			column.charLen = col[2]
 			column.precision = col[3]
 			column.nullable = "NULL" if col[4] == "YES" else "NOT NULL"
 			columns_list.append(column)
-			
+		
 		return columns_list
 	
 	
 	def list_records(self, table_name, sort_column, sort_direction, offset, limit):
 		cur = self.db.cursor()
-		cur.execute("SELECT * from %s ORDER BY %s %s OFFSET %s LIMIT %s;", 
-						(AsIs(table_name), AsIs(sort_column), AsIs(sort_direction), offset, limit))
+		query_string = "SELECT * from {0} ORDER BY {1} {2} LIMIT {3}, {4};" .format(table_name, sort_column, sort_direction, offset, limit)
+		cur.execute(query_string)
 		rows = cur.fetchall()
 		return rows
 	
