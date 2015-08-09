@@ -1,12 +1,5 @@
 #!/usr/bin/python
 
-'''**************************************
-# Name: Nikolay Goncharenko, Rory Bresnahan
-# Email: goncharn@onid.oregonstate.edu
-# Class: CS419 - Capstone Project
-# Assignment: Python Ncurses UI for 
-# MySQL/PostgreSQL Database Management
-**************************************'''
 import exceptions
 import sys
 import MySQLdb
@@ -14,17 +7,19 @@ import itertools
 from column import Column
 
 '''**************************************************
-* Class Database inherits object class
+* Class MysqlDB inherits object class
 *
-* Purpose:  Connect to the database and query it
+* Purpose:  Connect to the database, define, and i
+* 					implements queries
 **************************************************'''
 class MysqlDB(object):
+	# connect to DB when application is started and DB object is initialized
 	def __init__ (self):
 		try:
-			self.db =MySQLdb.Connection(host="sql3.freesqldatabase.com", user="sql386176", 
+			self.db = MySQLdb.Connection(host="sql3.freesqldatabase.com", user="sql386176", 
 				passwd="yD1!wG7%", db="sql386176")
-		except Error, e:
-			print 'Error %s' % e
+		except MySQLdb.Error, ex:
+			print 'Error  %s' % ex
 			sys.exit(1)
 	
 	
@@ -45,8 +40,8 @@ class MysqlDB(object):
 		columns_list = []
 		cur = self.db.cursor()
 		# get lists of column_name, type, charLen for CHAR, precision for numeric entries, nullable
-		query_string = "SELECT column_name, data_type, character_maximum_length, numeric_precision, is_nullable from information_schema.columns \
-										WHERE table_name = %s;"
+		query_string = "SELECT column_name, data_type, character_maximum_length, numeric_precision, \
+										is_nullable from information_schema.columns WHERE table_name = %s;"
 		cur.execute(query_string, (table_name,))
 		columns_tuple = cur.fetchall()
 		
@@ -92,80 +87,63 @@ class MysqlDB(object):
 	
 	def list_records(self, table_name, sort_column, sort_direction, offset, limit):
 		cur = self.db.cursor()
-		query_string = "SELECT * from {0} ORDER BY {1} {2} LIMIT {3}, {4};" .format(table_name, sort_column, sort_direction, offset, limit)
+		query_string = "SELECT * from `{0}` ORDER BY {1} {2} LIMIT {3}, {4};" .format(table_name, sort_column, sort_direction, offset, limit)
 		cur.execute(query_string)
 		rows = cur.fetchall()
 		return rows
 	
 	
-	def add_record(self, table_name, dict, id_column):
+	def add_record(self, table_name, col_dict, id_column):
 		new_row_id = 0
 		cur = self.db.cursor()
 		# get column names and values from the dictionary
 		# http://stackoverflow.com/questions/29461933
-		columns = dict.keys()
-		values = [dict[column] for column in columns]
-		
-		query  = 'INSERT INTO %s (%s) VALUES %s RETURNING %s'
+		columns = col_dict.keys()
+		values = tuple(col_dict[column] for column in columns)
+		# http://stackoverflow.com/questions/16253938
+		query  = "INSERT INTO {0} ({1}) VALUES ({2})".format(table_name, ', '.join(columns), ', '.join(["%s"]*len(columns)))
 		try:
-			cur.execute(query, (AsIs(table_name), AsIs(', '.join(columns)), tuple(values), AsIs(id_column)))
-			new_row_id = cur.fetchone()[0]
+			cur.execute(query, values)
+			new_row_id = cur.lastrowid
 			self.db.commit()
-		except Exception, ex:
+		except MySQLdb.Error, ex:
 			self.db.rollback()
-			#http://stackoverflow.com/questions/610883
-			if hasattr(ex, 'pgerror'): 
-				return ex.pgerror, False
-			else:
-				return str(ex), False
+			return str(ex), False
 		return new_row_id, True
 	
 	
 	def edit_record(self, table_name, set_dict, where_dict):
-		edited_row_id = 0
 		cur = self.db.cursor()
 		# create tuple containing values
-		#return_dict = {}
-		#for x in where_dict.keys(): return_dict[x] = AsIs(x)
-		table_dict = {'table': AsIs(table_name)}
-		data_list = table_dict.values() + set_dict.values() + where_dict.values()
+		data_list =  set_dict.values() + where_dict.values()
 		
 		# http://stackoverflow.com/questions/11517106
-		query  = 'UPDATE %s SET {0} WHERE {1} RETURNING {2}'.format(', '.join('{0}=%s'.format(col) for col in set_dict), 
-																								' AND '.join('{0}=%s'.format(col) for col in where_dict),
-																								', '.join('{0}'.format(AsIs(col)) for col in where_dict))
+		query  = 'UPDATE {0} SET {1} WHERE {2} LIMIT 1'.format(table_name, 
+																										', '.join('{0}=%s'.format(col) for col in set_dict), 
+																								' AND '.join('{0}=%s'.format(col) for col in where_dict))
 		try:
 			cur.execute(query, data_list)
 			self.db.commit()
-			edited_row_id = cur.fetchone()
-		except Exception, ex:
+			edited_row_id = cur.lastrowid
+		except MySQLdb.Error, ex:
 			self.db.rollback()
-			if hasattr(ex, 'pgerror'): 
-				return ex.pgerror, False
-			else:
-				return str(ex), False
+			return str(ex), False
 		
-		return edited_row_id, True
+		return True
 		
 	def delete_record(self, table_name, where_dict):
 		cur = self.db.cursor()
+		deleted_row = ['row has been deleted']
+		data_list =  where_dict.values()
 		
-		deleted_row = []
-		table_name = AsIs(table_name)
-		table_dict = {'table': table_name}
-		data_list =  table_dict.values() + where_dict.values()
-		
-		query  = 'DELETE FROM %s WHERE {0} RETURNING *'.format(' AND '.join('{0}=%s'.format(col) for col in where_dict))
+		query  = 'DELETE FROM {0} WHERE {1}'.format(table_name, ' AND '.join('{0}=%s'.format(col) for col in where_dict))
 		try:
 			cur.execute(query, data_list)
 			self.db.commit()
-			deleted_row = cur.fetchone()
-		except Exception, ex:
+			#deleted_row = cur.fetchone()
+		except MySQLdb.Error, ex:
 			self.db.rollback()
-			if hasattr(ex, 'pgerror'): 
-				return ex.pgerror, False
-			else:
-				return str(ex), False
+			return str(ex), False
 			
 		return deleted_row, True
 		

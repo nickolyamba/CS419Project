@@ -1,13 +1,5 @@
 #!/usr/bin/python
 
-'''**************************************
-# Name: Nikolay Goncharenko, Rory Bresnahan
-# Email: goncharn@onid.oregonstate.edu
-# Class: CS419 - Capstone Project
-# Assignment: Python Ncurses UI for 
-# MySQL/PostgreSQL Database Management
-**************************************'''
-
 '''*********************************************************
 Class Column inherits object
 

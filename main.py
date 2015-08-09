@@ -1,225 +1,22 @@
 #!/usr/bin/python
 
-'''**************************************
-# Name: Nikolay Goncharenko, Rory Bresnahan
-# Email: goncharn@onid.oregonstate.edu
-# Class: CS419 - Capstone Project
-# Assignment: Python Ncurses UI for 
-# MySQL/PostgreSQL Database Management
-**************************************'''
-
 import npyscreen, curses
-import psycopg2
-from psycopg2.extensions import AsIs
-#import _mysql
-import sys
-import itertools
+
 import datetime
 from decimal import Decimal
 from threading import Timer
 import time
+
 from mysqlDb import MysqlDB
+from postgreDb import PostgreDB
 from column import Column
+from alchemyLib import Alchemy
 
-from sqlalchemy import create_engine, MetaData, Table, Column, ForeignKey
-from sqlalchemy.ext.automap import automap_base
-from sqlalchemy.orm import sessionmaker
-
-FEEDBACK_TIMEOUT = 6 # displayed when out of form too - bug
-
-# http://stackoverflow.com/questions/2146705/select-datatype-of-the-field-in-postgres - datatypes fields
-# $mysqli = new mysqli("oniddb.cws.oregonstate.edu", "goncharn-db", $myPassword, "goncharn-db");
-
-'''**************************************************
-* Class Alchemy obj inherits object class
-*
-* Purpose:  Connect to the database and insert, delete data
-**************************************************'''
-class Alchemy(object):
-	def __init__ (self):
-		self.engine =  create_engine("postgresql://muepyavy:EQoh7fJJNxK-4ag4SNUIYwzzWqTVzj-8@babar.elephantsql.com/muepyavy")
-	
-	def get_datatable(self, table_name):
-		metadata = MetaData()
-		metadata.reflect(self.engine, only=[table_name])
-		datatable = metadata.tables[table_name]
-		return datatable
-		
-	def insert(self, dict):
-		conn = engine.connect()
-		stmt = datatable.insert().values(dict)
-		conn.execute(stmt)
-		conn.close()
-
-'''**************************************************
-* Class Database inherits object class
-*
-* Purpose:  Connect to the database and query it
-**************************************************'''
-class Database(object):
-	def __init__ (self):
-		try:
-			self.conn = psycopg2.connect("dbname='muepyavy' user='muepyavy' host='babar.elephantsql.com' password='EQoh7fJJNxK-4ag4SNUIYwzzWqTVzj-8'")
-		except psycopg2.DatabaseError, e:
-			self.conn.rollback()
-			print 'Error %s' % e
-			sys.exit(1)
-	
-	
-	# returns list of all tables in the database	
-	def list_all_tables(self):
-		cur = self.conn.cursor()
-		cur.execute("SELECT table_name FROM information_schema.tables \
-							WHERE \
-								table_type = 'BASE TABLE' AND table_schema = 'public' \
-							ORDER BY table_type, table_name")
-		tables = cur.fetchall()
-		cur.close()
-		return tables
-	
-	
-	# returns list of all column names in the table	
-	def list_columns(self, table_name):
-		columns_list = []
-		cur = self.conn.cursor()
-		# get lists of column_name, type, charLen for CHAR, precision for numeric entries, nullable
-		cur.execute("SELECT column_name, data_type, character_maximum_length, numeric_precision, is_nullable from information_schema.columns \
-										WHERE table_name = %s;", (table_name,))
-		columns_tuple = cur.fetchall()
-		
-		cur.execute("SELECT a.attname FROM  pg_index i \
-			JOIN  pg_attribute a ON a.attrelid = i.indrelid \
-			AND a.attnum = ANY(i.indkey) \
-			WHERE  i.indrelid = %s::regclass \
-			AND  i.indisprimary;",  (table_name,))
-			
-		columns_prim_tuple = cur.fetchall()
-		
-		cur.close()
-		# traverese tuple of tuples to list of strings
-		# http://stackoverflow.com/questions/1663807
-		for col, col_prim in itertools.izip_longest(columns_tuple, columns_prim_tuple):
-			# create Column object
-			column = Column()
-			
-			col = list(col)
-			col[0] = col[0].strip("(),'")
-			
-			# col_prim is None, do not append assign None
-			if col_prim:
-				col_prim = list(col_prim)
-				col_prim[0] = col_prim[0].strip("(),'")
-				column.primary_key = col_prim[0]
-			else:
-				column.primary_key = ''
-			
-			column.name = col[0]
-			column.type = col[1]
-			column.charLen = col[2]
-			column.precision = col[3]
-			column.nullable = "NULL" if col[4] == "YES" else "NOT NULL"
-			columns_list.append(column)
-			
-		return columns_list
-	
-	
-	def list_records(self, table_name, sort_column, sort_direction, offset, limit):
-		cur = self.conn.cursor()
-		cur.execute("SELECT * from %s ORDER BY %s %s OFFSET %s LIMIT %s;", 
-						(AsIs(table_name), AsIs(sort_column), AsIs(sort_direction), offset, limit))
-		rows = cur.fetchall()
-		return rows
-	
-	
-	def add_record(self, table_name, dict, id_column):
-		new_row_id = 0
-		cur = self.conn.cursor()
-		# get column names and values from the dictionary
-		# http://stackoverflow.com/questions/29461933
-		columns = dict.keys()
-		values = [dict[column] for column in columns]
-		
-		query  = 'INSERT INTO %s (%s) VALUES %s RETURNING %s'
-		try:
-			cur.execute(query, (AsIs(table_name), AsIs(', '.join(columns)), tuple(values), AsIs(id_column)))
-			new_row_id = cur.fetchone()[0]
-			self.conn.commit()
-		except Exception, ex:
-			self.conn.rollback()
-			#http://stackoverflow.com/questions/610883
-			if hasattr(ex, 'pgerror'): 
-				return ex.pgerror, False
-			else:
-				return str(ex), False
-		return new_row_id, True
-	
-	
-	def edit_record(self, table_name, set_dict, where_dict):
-		edited_row_id = 0
-		cur = self.conn.cursor()
-		# create tuple containing values
-		table_dict = {'table': AsIs(table_name)}
-		data_list = table_dict.values() + set_dict.values() + where_dict.values()
-		
-		# http://stackoverflow.com/questions/11517106
-		query  = 'UPDATE %s SET {0} WHERE {1} RETURNING {2}'.format(', '.join('{0}=%s'.format(col) for col in set_dict), 
-																								' AND '.join('{0}=%s'.format(col) for col in where_dict),
-																								', '.join('{0}'.format(AsIs(col)) for col in where_dict))
-		try:
-			cur.execute(query, data_list)
-			self.conn.commit()
-			edited_row_id = cur.fetchone()
-		except Exception, ex:
-			self.conn.rollback()
-			if hasattr(ex, 'pgerror'): 
-				return ex.pgerror, False
-			else:
-				return str(ex), False
-		
-		return edited_row_id, True
-		
-	def delete_record(self, table_name, where_dict):
-		cur = self.conn.cursor()
-		
-		deleted_row = []
-		table_name = AsIs(table_name)
-		table_dict = {'table': table_name}
-		data_list =  table_dict.values() + where_dict.values()
-		
-		query  = 'DELETE FROM %s WHERE {0} RETURNING *'.format(' AND '.join('{0}=%s'.format(col) for col in where_dict))
-		try:
-			cur.execute(query, data_list)
-			self.conn.commit()
-			deleted_row = cur.fetchone()
-		except Exception, ex:
-			self.conn.rollback()
-			if hasattr(ex, 'pgerror'): 
-				return ex.pgerror, False
-			else:
-				return str(ex), False
-			
-		return deleted_row, True
-		
-		
-	def closeConn(self):
-		self.conn.close()
+# time in sec of showing 
+# feedback message to a user
+FEEDBACK_TIMEOUT = 6
 
 
-'''*********************************************************
-Class Column inherits object
-
-Purpose:  Save a column properties to used in the program
-*********************************************************'''
-'''
-class Column(object):
-	def __init__ (self):
-		name = ''
-		type = ''
-		charLen = ''
-		precision = ''
-		nullable = ''
-		primary_key = ''
-'''	
 '''*********************************************************
    Class GridSettings inherits object
    
@@ -238,7 +35,7 @@ class GridSettings(object):
 		self.rows = []
 		#location of the currently edited cell
 		self.edit_cell = []
-		
+		# database engine type
 		self.db_type = ''
 		
 
@@ -250,9 +47,6 @@ class GridSettings(object):
     visualazing a table in database
 **************************************************'''
 class MyGrid(npyscreen.GridColTitles):
-    # You need to override custom_print_cell to manipulate how
-    # a cell is printed. In this example we change the color of the
-    # text depending on the string value of cell.
     def custom_print_cell(self, actual_cell, cell_display_value):
         pass
 
@@ -290,8 +84,9 @@ class DBList(npyscreen.MultiLineAction):
    
    Purpose:  Container for displaying of the dynamic list
 **************************************************'''
-class DBSelectForm(npyscreen.Form):
+class DBSelectForm(npyscreen.ActionFormMinimal):
 	# Create Widgets
+	OK_BUTTON_TEXT = "Exit"
 	def create(self):
 		self.action = self.add(DBList, max_height=3,
 									    name='Select Database Engine',
@@ -301,6 +96,10 @@ class DBSelectForm(npyscreen.Form):
 		
 		# define exit on Esc
 		self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.parentApp.exit_application
+		
+	def on_ok(self):
+		self.parentApp.switchForm(None)
+		self.parentApp.switchFormNow()
 
 		
 '''**************************************************
@@ -322,7 +121,8 @@ class TableList(npyscreen.MultiLineAction):
 		
 		# reset Main App Form objects
 		del self.parent.parentApp.myGridSet.columns_list [:]
-		del self.parent.parentApp.myGridSet.rows [:]
+		self.parent.parentApp.myGridSet.rows = ()
+		self.parent.parentApp.myGridSet.sort_column = ''
 		#del self.parent.parentApp.myGridSet
 		#self.parent.parentApp.myGridSet = GridSettings()
 		
@@ -347,8 +147,8 @@ class TableList(npyscreen.MultiLineAction):
    
    Purpose:  Container Form for displaying of the dynamic list
 **************************************************'''
-class TableListDisplay(npyscreen.ActionForm):
-	CANCEL_BUTTON_TEXT = "Back"
+class TableListDisplay(npyscreen.ActionFormMinimal):
+	OK_BUTTON_TEXT = "Back"
 	# Create Widgets
 	def create(self):
 		self.action = self.add(TableList,
@@ -356,8 +156,8 @@ class TableListDisplay(npyscreen.ActionForm):
 										scroll_exit = True)
 		#self.nextrely += 1
 		
-		# define exit on Esc
-		self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.parentApp.exit_application
+		# define action on Esc
+		self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.on_ok
 		
 	def beforeEditing(self):
 		self.update_list()
@@ -365,35 +165,14 @@ class TableListDisplay(npyscreen.ActionForm):
 	# populate wMain.values with list of tables in the database
 	def update_list(self):
 		if self.parentApp.myGridSet.db_type == 'PostgreSQL':
-			self.action.values = self.parentApp.myDatabase.list_all_tables()
+			self.action.values = self.parentApp.postgreDb.list_all_tables()
 		else:
 			self.action.values = self.parentApp.mySQLDb.list_all_tables()		
 		
-	def on_cancel(self):
+	def on_ok(self):
 		self.parentApp.switchForm('MAIN')
 		self.parentApp.switchFormNow()
-'''
-class TableListDisplay(npyscreen.FormMutt):
-	
-	# type of widget to be displayed
-	MAIN_WIDGET_CLASS = TableList
-	# position of main_widget and status widget
-	MAIN_WIDGET_CLASS_START_LINE = 2
-	STATUS_WIDGET_X_OFFSET = 5
-	
-	def beforeEditing(self):
-		self.update_list()
-	
-	# populate wMain.values with list of tables in the database
-	def update_list(self):
-		self.wStatus1.value =  ' Select Table From List   '
-		if self.parentApp.myGridSet.db_type == 'PostgreSQL':
-			self.wMain.values = self.parentApp.myDatabase.list_all_tables()
-		else:
-			self.wMain.values = self.parentApp.mySQLDb.list_all_tables()
-		self.wMain.relx= 3
-		self.wMain.display()
-'''
+
 
 '''**************************************************
    Class TableOptionList inherits MultiLineAction class
@@ -435,6 +214,7 @@ class TableOptionList(npyscreen.MultiLineAction):
 **************************************************'''													
 class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 	# set screen redirection based on user choice
+	CANCEL_BUTTON_TEXT = "Back"
 	def afterEditing(self):
 		if self.timer:
 			self.timer.cancel()# cancel timer
@@ -477,12 +257,10 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 		# create Grid widget  and setup handler for Enter btn press
 		self.myGrid =  self.add(MyGrid, col_titles = [], select_whole_line = True)
 		# set grid handler for Enter press. source: https://goo.gl/e9wkYu
-		#grid_handler = {curses.ascii.LF : self.root_menu}
-		#delete_handler = {curses.ascii.DEL : self.confirm_delete}
 		self.myGrid.add_handlers({curses.ascii.LF: self.root_menu})
 
 		# define exit on Esc
-		self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.exit_application
+		self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.on_cancel
 	
 	def exit_menu(self):
 		self.h_exit_escape(None)
@@ -499,7 +277,10 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 				if  col.primary_key:
 					where_dict[col.name] = col_value
 			# delete row
-			del_row_data, isSuccess = self.parentApp.myDatabase.delete_record(self.parentApp.myGridSet.table, where_dict)
+			if self.parentApp.myGridSet.db_type == 'PostgreSQL':
+				del_row_data, isSuccess = self.parentApp.postgreDb.delete_record(self.parentApp.myGridSet.table, where_dict)
+			else:
+				del_row_data, isSuccess = self.parentApp.mySQLDb.delete_record(self.parentApp.myGridSet.table, where_dict)
 			# give feedback
 			if isSuccess:
 				del_data_dict = {}
@@ -533,7 +314,6 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 		# reset Grid
 		del self.myGrid.values [:]
 		# query rows from database to populate grid
-		#self.rows = self.parentApp.myDatabase.list_records(self.parentApp.myGridSet.table, self.sort_column, self.sort_direction, self.offset, self.limit)
 		self.fetch_rows()
 		for row in self.rows:
 			self.myGrid.values.append(row)
@@ -571,7 +351,6 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 		# reset Grid
 		self.myGrid.values = []
 		# query rows from database to populate grid
-		#self.rows = self.parentApp.myDatabase.list_records(self.table_name, self.sort_column, self.sort_direction, self.offset, self.limit)
 		self.fetch_rows()
 		
 		for row in self.rows:
@@ -622,7 +401,7 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 			# Otherwise, just update the grid values
 			if not self.parentApp.myGridSet.columns_list or self.parentApp.myGridSet.table != self.table_name:
 				if self.parentApp.myGridSet.db_type == 'PostgreSQL':
-					self.columns_list = self.parentApp.myDatabase.list_columns(self.table_name)
+					self.columns_list = self.parentApp.postgreDb.list_columns(self.table_name)
 				else:
 					self.columns_list = self.parentApp.mySQLDb.list_columns(self.table_name)
 				# Save Table properties in the myGridSet
@@ -666,7 +445,7 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 	
 	def fetch_rows(self):
 		if self.parentApp.myGridSet.db_type == 'PostgreSQL':
-			self.rows = self.parentApp.myDatabase.list_records(self.table_name, self.sort_column, self.sort_direction, self.offset, self.limit)
+			self.rows = self.parentApp.postgreDb.list_records(self.table_name, self.sort_column, self.sort_direction, self.offset, self.limit)
 		else:
 			self.rows = self.parentApp.mySQLDb.list_records(self.table_name, self.sort_column, self.sort_direction, self.offset, self.limit)
 		
@@ -693,7 +472,8 @@ class AddRowForm(npyscreen.ActionForm):
 	
 	def create(self):
 		# http://stackoverflow.com/questions/4010840
-	 	'''
+	 	# SQL Alchemy version - working
+		'''
 		self.datatable = self.parentApp.alchemy.get_datatable(self.parentApp.myGridSet.table)
 		for c in self.datatable.c:
 			k = str(c).split('.')
@@ -781,7 +561,10 @@ class AddRowForm(npyscreen.ActionForm):
 					value = self.parentApp.cast_string(col.type,  self.dict[col.name].value)
 					col_dict[col.name] = value
 		# add row
-		self.row_id, isSuccess = self.parentApp.myDatabase.add_record(self.parentApp.myGridSet.table, col_dict, self.prim_key_list[0])
+		if self.parentApp.myGridSet.db_type == 'PostgreSQL':
+			self.row_id, isSuccess = self.parentApp.postgreDb.add_record(self.parentApp.myGridSet.table, col_dict, self.prim_key_list[0])
+		else:
+			self.row_id, isSuccess = self.parentApp.mySQLDb.add_record(self.parentApp.myGridSet.table, col_dict, self.prim_key_list[0])
 		# give feedback
 		if isSuccess:
 			self.feedback.value  = "Added Row. " + self.prim_key_list[0] + ": " + str(self.row_id)
@@ -818,7 +601,7 @@ class AddRowForm(npyscreen.ActionForm):
 		# reset Grid
 		self.myGrid.values = []
 		# query rows from database to populate grid
-		self.rows = self.parentApp.myDatabase.list_records(self.parentApp.myGridSet.table, self.sort_column, self.sort_direction, self.offset, self.limit)
+		self.fetch_rows()
 		for row in self.rows:
 			self.myGrid.values.append(row)
 	
@@ -844,7 +627,7 @@ class AddRowForm(npyscreen.ActionForm):
 		# reset Grid
 		self.myGrid.values = []
 		# query rows from database to populate grid
-		self.rows = self.parentApp.myDatabase.list_records(self.parentApp.myGridSet.table, self.sort_column, self.sort_direction, self.offset, self.limit)
+		self.fetch_rows()
 		for row in self.rows:
 			self.myGrid.values.append(row)
 		self.display()
@@ -874,10 +657,16 @@ class AddRowForm(npyscreen.ActionForm):
 		# reset Grid
 		self.myGrid.values = []
 		# query rows from database to populate grid
-		self.rows = self.parentApp.myDatabase.list_records(self.parentApp.myGridSet.table, self.sort_column, self.sort_direction, self.offset, self.limit)
+		self.fetch_rows()
 		for row in self.rows:
 			self.myGrid.values.append(row)
 		self.display()
+	
+	def fetch_rows(self):
+		if self.parentApp.myGridSet.db_type == 'PostgreSQL':
+			self.rows = self.parentApp.postgreDb.list_records(self.parentApp.myGridSet.table, self.sort_column, self.sort_direction, self.offset, self.limit)
+		else:
+			self.rows = self.parentApp.mySQLDb.list_records(self.parentApp.myGridSet.table, self.sort_column, self.sort_direction, self.offset, self.limit)
 		
 	def hideFeedback(self):
 		self.feedback.hidden = True
@@ -974,12 +763,7 @@ class EditRowForm(npyscreen.ActionForm):
 		self.row_num = self.parentApp.myGridSet.edit_cell[0]
 		for col, col_value in zip(self.parentApp.myGridSet.columns_list, self.parentApp.tabMenuF.myGrid.values[self.row_num]):
 			self.dict[col.name].value = str(col_value)
-		'''
-		list = []
-		for col in self.parentApp.myGridSet.columns_list:
-			list.append(col.name)
-		self.feedback.value = str(list)
-		'''
+	
 	def editRow(self):
 		col_dict = {} # dict containing changed columns
 		where_dict = {} # dict containing primary keys
@@ -998,10 +782,16 @@ class EditRowForm(npyscreen.ActionForm):
 					if col.name in self.prim_key_list:
 						where_dict[col.name] = col_value
 		# edit row
-		row_id, isSuccess = self.parentApp.myDatabase.edit_record(self.parentApp.myGridSet.table, col_dict, where_dict)
+		if self.parentApp.myGridSet.db_type == 'PostgreSQL':
+			row_id, isSuccess = self.parentApp.postgreDb.edit_record(self.parentApp.myGridSet.table, col_dict, where_dict)
+		else:
+			isSuccess = self.parentApp.mySQLDb.edit_record(self.parentApp.myGridSet.table, col_dict, where_dict)
 		# give feedback
 		if isSuccess:
-			self.feedback.value  = "Row has been edited  succesfully. Returned: " + str(self.prim_key_list) + " = " + str(row_id)
+			if self.parentApp.myGridSet.db_type == 'PostgreSQL':
+				self.feedback.value  = "Row has been edited  succesfully. Returned: " + str(self.prim_key_list) + " = " + str(row_id)
+			else:
+				self.feedback.value  = "Row has been edited  succesfully."
 			self.feedback.color = 'SAFE'
 			# update myGrid and screen
 			self.update_grid()
@@ -1032,7 +822,8 @@ class EditRowForm(npyscreen.ActionForm):
 		# reset Grid
 		del self.myGrid.values [:]
 		# query rows from database to populate grid
-		self.rows = self.parentApp.myDatabase.list_records(self.parentApp.myGridSet.table, self.sort_column, self.sort_direction, self.offset, self.limit)
+		#self.rows = self.parentApp.postgreDb.list_records(self.parentApp.myGridSet.table, self.sort_column, self.sort_direction, self.offset, self.limit)
+		self.fetch_rows()
 		for row in self.rows:
 			self.myGrid.values.append(row)
 		self.parentApp.myGridSet.rows = self.rows
@@ -1059,7 +850,8 @@ class EditRowForm(npyscreen.ActionForm):
 		# reset Grid
 		self.myGrid.values = []
 		# query rows from database to populate grid
-		self.rows = self.parentApp.myDatabase.list_records(self.parentApp.myGridSet.table, self.sort_column, self.sort_direction, self.offset, self.limit)
+		#self.rows = self.parentApp.postgreDb.list_records(self.parentApp.myGridSet.table, self.sort_column, self.sort_direction, self.offset, self.limit)
+		self.fetch_rows()
 		for row in self.rows:
 			self.myGrid.values.append(row)
 		self.display()
@@ -1089,10 +881,17 @@ class EditRowForm(npyscreen.ActionForm):
 		# reset Grid
 		self.myGrid.values = []
 		# query rows from database to populate grid
-		self.rows = self.parentApp.myDatabase.list_records(self.parentApp.myGridSet.table, self.sort_column, self.sort_direction, self.offset, self.limit)
+		#self.rows = self.parentApp.postgreDb.list_records(self.parentApp.myGridSet.table, self.sort_column, self.sort_direction, self.offset, self.limit)
+		self.fetch_rows()
 		for row in self.rows:
 			self.myGrid.values.append(row)
 		self.display()
+	
+	def fetch_rows(self):
+		if self.parentApp.myGridSet.db_type == 'PostgreSQL':
+			self.rows = self.parentApp.postgreDb.list_records(self.parentApp.myGridSet.table, self.sort_column, self.sort_direction, self.offset, self.limit)
+		else:
+			self.rows = self.parentApp.mySQLDb.list_records(self.parentApp.myGridSet.table, self.sort_column, self.sort_direction, self.offset, self.limit)
 	
 	def hideFeedback(self):
 		self.feedback.hidden = True
@@ -1162,11 +961,11 @@ class MyApplication(npyscreen.NPSAppManaged):
 	add_row_count = 0 # count number of calls to Add Row Form
 	edit_row_count = 0 # count number of calls to Edit Row Form
 	def onStart(self):
-		self.myDatabase = Database()
+		self.postgreDb = PostgreDB()
 		self.alchemy = Alchemy() # works well, but too slow
 		self.myGridSet = GridSettings()
 		#self.selTableF = self.addForm('TableSelect', TableListDisplay, name='Select Table')
-		self.selDbF = self.addForm('MAIN', DBSelectForm, name = 'Select Database Engine')
+		self.selDbF = self.addForm('MAIN', DBSelectForm, name = 'Select PostgreDB Engine')
 		self.selTableF = self.addForm('TableSelect', TableListDisplay, name='Select Table')
 		self.tabMenuF = self.addForm('Menu', TableMenuForm)
 		self.GridSetF = self.addForm('GridSet', GridSetForm, name='Pagination Settings')
@@ -1202,17 +1001,12 @@ class MyApplication(npyscreen.NPSAppManaged):
 				self.mySQLDb = MysqlDB()
 			
 		'''
-		elif self.NEXT_ACTIVE_FORM == 'TableSelect':
-			if hasattr(self, 'addRowF'):
-				del self.addRowF
-			if hasattr(self, 'editRowF'):
-				del self.editRowF
-			self.resetHistory()
-			for item in :
-				del self.dict[col.name]
+		elif self.NEXT_ACTIVE_FORM == 'Menu':
+			del self.myGridSet.columns_list [:]
+			self.myGridSet.rows = ()
 		'''
 	def onCleanExit(self):
-		self.myDatabase.closeConn()
+		self.postgreDb.closeConn()
 		
 	'''**************************************************************************
 	Function cast_string()
