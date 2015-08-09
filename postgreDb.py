@@ -95,13 +95,14 @@ class PostgreDB(object):
 		# get column names and values from the dictionary
 		# http://stackoverflow.com/questions/29461933
 		columns = dict.keys()
-		values = [dict[column] for column in columns]
+		values = tuple(dict[column] for column in columns)
 		
 		query  = 'INSERT INTO %s (%s) VALUES %s RETURNING %s'
 		try:
-			cur.execute(query, (AsIs(table_name), AsIs(', '.join(columns)), tuple(values), AsIs(id_column)))
-			new_row_id = cur.fetchone()[0]
-			self.conn.commit()
+		cur.execute(query, (AsIs(table_name), AsIs(', '.join(columns)), values, AsIs(id_column)))
+		new_row_id = cur.fetchone()[0]
+		self.conn.commit()
+		
 		except Exception, ex:
 			self.conn.rollback()
 			#http://stackoverflow.com/questions/610883
@@ -109,6 +110,7 @@ class PostgreDB(object):
 				return ex.pgerror, False
 			else:
 				return str(ex), False
+		
 		return new_row_id, True
 	
 	

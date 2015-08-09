@@ -125,13 +125,10 @@ class TableList(npyscreen.MultiLineAction):
 		self.parent.parentApp.myGridSet.sort_column = ''
 		#del self.parent.parentApp.myGridSet
 		#self.parent.parentApp.myGridSet = GridSettings()
-		
-		del self.parent.parentApp.selTableF
-		self.parent.parentApp.selTableF = self.parent.parentApp.addForm('TableSelect', TableListDisplay, name='Select Table')
-		
+		#del self.parent.parentApp.selTableF
+		#self.parent.parentApp.selTableF = self.parent.parentApp.addForm('TableSelect', TableListDisplay, name='Select Table')
 		del self.parent.parentApp.tabMenuF
 		self.parent.parentApp.tabMenuF = self.parent.parentApp.addForm('Menu', TableMenuForm)
-		
 		del self.parent.parentApp.GridSetF
 		self.parent.parentApp.GridSetF = self.parent.parentApp.addForm('GridSet', GridSetForm, name='Pagination Settings')
 		
@@ -552,21 +549,26 @@ class AddRowForm(npyscreen.ActionForm):
 		if self.dict[self.prim_key_list[0]].value:
 			for col in self.parentApp.myGridSet.columns_list:
 				value = self.parentApp.cast_string(str(col.type),  self.dict[col.name].value)
-				col_dict[col.name] = value
+				if value != None or col.nullable != 'NULL':
+					col_dict[col.name] = value
 		# user doesn't enter value for primary key
 		# implement autoincreament
 		else:
 			for col in self.parentApp.myGridSet.columns_list:
 				if col.name != self.prim_key_list[0]:
 					value = self.parentApp.cast_string(col.type,  self.dict[col.name].value)
-					col_dict[col.name] = value
+					if value != None or col.nullable != 'NULL':
+						col_dict[col.name] = value
+		#self.feedback.value = str(col_dict)
 		# add row
+		
 		if self.parentApp.myGridSet.db_type == 'PostgreSQL':
 			self.row_id, isSuccess = self.parentApp.postgreDb.add_record(self.parentApp.myGridSet.table, col_dict, self.prim_key_list[0])
 		else:
 			self.row_id, isSuccess = self.parentApp.mySQLDb.add_record(self.parentApp.myGridSet.table, col_dict, self.prim_key_list[0])
 		# give feedback
 		if isSuccess:
+			id_dict = {}
 			self.feedback.value  = "Added Row. " + self.prim_key_list[0] + ": " + str(self.row_id)
 			self.feedback.color = 'SAFE'
 			# reset textbox values
@@ -586,7 +588,7 @@ class AddRowForm(npyscreen.ActionForm):
 		# set times to hide the feedback
 		self.timer = Timer(FEEDBACK_TIMEOUT, self.hideFeedback)
 		self.timer.start()
-		
+	
 	def update_grid(self):
 		# reset Grid
 		self.limit = self.parentApp.myGridSet.limit
@@ -1017,6 +1019,7 @@ class MyApplication(npyscreen.NPSAppManaged):
 	def cast_string(self, data_type, string_val):
 		value = None
 		if not string_val:
+			#self.addRowF.feedback.value = "None chosen"
 			return None
 		if data_type == 'text' or 'char':
 			return string_val
@@ -1037,7 +1040,7 @@ class MyApplication(npyscreen.NPSAppManaged):
 		elif data_type == 'time':
 			value = datetime.datetime.strptime(string_val, '%H:%M:%S').time()
 		elif data_type == 'datetime':
-			value = datetime.datetime.strptime(string_val, '%Y/%m/%d %H:%M:%S.%f')
+			value = datetime.datetime.strptime(string_val, '%Y/%m/%d %H:%M:%S')
 		return value
 		
 	def exit_application(self):
