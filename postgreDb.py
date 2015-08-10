@@ -53,6 +53,11 @@ class PostgreDB(object):
 			
 		columns_prim_tuple = cur.fetchall()
 		
+		#https://wiki.postgresql.org/wiki/Count_estimate
+		#cur.execute("SELECT reltuples FROM pg_class WHERE oid = %s::regclass; ",  (table_name,))
+		cur.execute("SELECT COUNT(*) FROM %s;",  (AsIs(table_name),))
+		row_count = cur.fetchone()
+
 		cur.close()
 		# traverese tuple of tuples to list of strings
 		# http://stackoverflow.com/questions/1663807
@@ -78,7 +83,8 @@ class PostgreDB(object):
 			column.nullable = "NULL" if col[4] == "YES" else "NOT NULL"
 			columns_list.append(column)
 			
-		return columns_list
+		#row_count = list(row_count_tuple)
+		return columns_list, row_count[0]
 	
 	
 	def list_records(self, table_name, sort_column, sort_direction, offset, limit):
@@ -99,10 +105,9 @@ class PostgreDB(object):
 		
 		query  = 'INSERT INTO %s (%s) VALUES %s RETURNING %s'
 		try:
-		cur.execute(query, (AsIs(table_name), AsIs(', '.join(columns)), values, AsIs(id_column)))
-		new_row_id = cur.fetchone()[0]
-		self.conn.commit()
-		
+			cur.execute(query, (AsIs(table_name), AsIs(', '.join(columns)), values, AsIs(id_column)))
+			new_row_id = cur.fetchone()[0]
+			self.conn.commit()
 		except Exception, ex:
 			self.conn.rollback()
 			#http://stackoverflow.com/questions/610883

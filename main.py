@@ -3,6 +3,7 @@
 import npyscreen, curses
 
 import datetime
+from math import floor
 from decimal import Decimal
 from threading import Timer
 import time
@@ -37,6 +38,7 @@ class GridSettings(object):
 		self.edit_cell = []
 		# database engine type
 		self.db_type = ''
+		self.row_count = 0
 		
 
 
@@ -123,6 +125,10 @@ class TableList(npyscreen.MultiLineAction):
 		del self.parent.parentApp.myGridSet.columns_list [:]
 		self.parent.parentApp.myGridSet.rows = ()
 		self.parent.parentApp.myGridSet.sort_column = ''
+		self.parent.parentApp.myGridSet.offset = 0
+		self.parent.parentApp.myGridSet.row_count = 0
+		self.parent.parentApp.myGridSet.limit = 5
+		
 		#del self.parent.parentApp.myGridSet
 		#self.parent.parentApp.myGridSet = GridSettings()
 		#del self.parent.parentApp.selTableF
@@ -234,13 +240,20 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 		#self.nextrely += 1
 		
 		# buttons
-		self.bn_prev = self.add(npyscreen.ButtonPress, name = "Prev", max_height=1, relx = 35)
-		self.bn_prev.whenPressed = self.redrawPrev # button press handler
+		self.bn_first_page = self.add(npyscreen.ButtonPress, name = "<< First", max_height=1, relx = 23)
+		self.bn_first_page.whenPressed = self.redrawFirstPage # button press handler
+		self.nextrely += -1 #widget stays at the same line 
 		
-		self.nextrely += -1 # 2nd widget stays at the same line 
-		self.bn_next = self.add(npyscreen.ButtonPress, name = "Next", max_height=1, relx = 45)
-		self.bn_next.whenPressed = self.redrawNext # button press handler
-	    
+		self.bn_prev = self.add(npyscreen.ButtonPress, name = "< Prev", max_height=1, relx = 35)
+		self.bn_prev.whenPressed = self.redrawPrev # button press handler
+		self.nextrely += -1 # widget stays at the same line 
+		
+		self.bn_next = self.add(npyscreen.ButtonPress, name = "Next >", max_height=1, relx = 45)
+		self.bn_next.when_pressed_function = self.redrawNext # button press handler
+		self.nextrely += -1 # widget stays at the same line 
+		
+		self.bn_last_page = self.add(npyscreen.ButtonPress, name = "Last >>", max_height=1, relx = 55)
+		self.bn_last_page.whenPressed = self.redrawLastPage # button press handler
 		# move one line down from  the previous form
 		self.nextrely += 1
 		
@@ -337,7 +350,9 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 		self.limit = self.parentApp.myGridSet.limit
 		# update offset
 		new_offset = self.parentApp.myGridSet.offset + self.limit
-		self.parentApp.myGridSet.offset = new_offset
+		if new_offset <= self.parentApp.myGridSet.row_count:
+			self.parentApp.myGridSet.offset = new_offset
+		#self.parentApp.myGridSet.offset = new_offset
 		self.offset = self.parentApp.myGridSet.offset
 		# update sorting order and column to sort on
 		self.sort_direction = self.parentApp.myGridSet.sort_direction
@@ -386,6 +401,37 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 		self.parentApp.myGridSet.rows = self.rows
 		self.display()
 		
+	def redrawFirstPage(self):
+			self.limit = self.parentApp.myGridSet.limit
+			self.offset = 0
+			self.parentApp.myGridSet.offset = self.offset
+			self.sort_direction =  self.parentApp.myGridSet.sort_direction
+			self.sort_column = self.parentApp.myGridSet.sort_column
+			# when called with default settings
+			if self.sort_column == '':
+					self.sort_column = self.parentApp.myGridSet.columns_list[0].name
+			self.myGrid.values = []
+			self.fetch_rows()
+			for row in self.rows:
+				self.myGrid.values.append(row)
+			self.display()
+		
+	def redrawLastPage(self):
+		self.limit = self.parentApp.myGridSet.limit
+		page_count = int(floor(self.parentApp.myGridSet.row_count /self.limit))
+		self.offset = page_count * self.parentApp.myGridSet.limit
+		self.parentApp.myGridSet.offset = self.offset
+		self.sort_direction =  self.parentApp.myGridSet.sort_direction
+		self.sort_column = self.parentApp.myGridSet.sort_column
+		# when called with default settings
+		if self.sort_column == '':
+				self.sort_column = self.parentApp.myGridSet.columns_list[0].name
+		self.myGrid.values = []
+		self.fetch_rows()
+		for row in self.rows:
+			self.myGrid.values.append(row)
+		self.display()
+		
 	def beforeEditing(self):
 		# if were able to set value for self.selectTable
 		#self.parentApp.resetHistory()
@@ -398,9 +444,9 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 			# Otherwise, just update the grid values
 			if not self.parentApp.myGridSet.columns_list or self.parentApp.myGridSet.table != self.table_name:
 				if self.parentApp.myGridSet.db_type == 'PostgreSQL':
-					self.columns_list = self.parentApp.postgreDb.list_columns(self.table_name)
+					self.columns_list, self.row_count = self.parentApp.postgreDb.list_columns(self.table_name)
 				else:
-					self.columns_list = self.parentApp.mySQLDb.list_columns(self.table_name)
+					self.columns_list, self.row_count = self.parentApp.mySQLDb.list_columns(self.table_name)
 				# Save Table properties in the myGridSet
 				self.parentApp.myGridSet.columns_list = []
 				for col in self.columns_list:
@@ -409,6 +455,10 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 				self.myGrid.col_titles  = []
 				for col in self.columns_list:
 					self.myGrid.col_titles.append(col.name)
+			
+			self.parentApp.myGridSet.row_count =  self.row_count
+			#self.feedback.value = str(self.parentApp.myGridSet.row_count)
+			#self.display()
 			
 			# update query params from GridSettings object
 			self.limit = self.parentApp.myGridSet.limit
@@ -513,13 +563,21 @@ class AddRowForm(npyscreen.ActionForm):
 		self.feedback = self.add(npyscreen.MultiLineEdit, editable = False, name = ' ', hidden = False, relx = 15, begin_entry_at = 1, max_height=4)
 		self.nextrely += 1
 		
-		self.bn_prev = self.add(npyscreen.ButtonPress, name = "Prev", max_height=1, relx = 35)
-		self.bn_prev.whenPressed = self.redrawPrev # button press handler
-		self.nextrely += -1 # 3d widget stays at the same line 
+		self.bn_first_page = self.add(npyscreen.ButtonPress, name = "<< First", max_height=1, relx = 23)
+		self.bn_first_page.whenPressed = self.redrawFirstPage # button press handler
+		self.nextrely += -1 #widget stays at the same line 
 		
-		self.bn_next = self.add(npyscreen.ButtonPress, name = "Next", max_height=1, relx = 45)
+		self.bn_prev = self.add(npyscreen.ButtonPress, name = "< Prev", max_height=1, relx = 35)
+		self.bn_prev.whenPressed = self.redrawPrev # button press handler
+		self.nextrely += -1 # widget stays at the same line 
+		
+		self.bn_next = self.add(npyscreen.ButtonPress, name = "Next >", max_height=1, relx = 45)
 		self.bn_next.when_pressed_function = self.redrawNext # button press handler
-		self.nextrely += 1
+		self.nextrely += -1 # widget stays at the same line 
+		
+		self.bn_last_page = self.add(npyscreen.ButtonPress, name = "Last >>", max_height=1, relx = 55)
+		self.bn_last_page.whenPressed = self.redrawLastPage # button press handler
+		self.nextrely += 1 
 		
 		# create Grid widget
 		self.myGrid =  self.add(MyGrid, col_titles = [], select_whole_line = True)
@@ -571,6 +629,8 @@ class AddRowForm(npyscreen.ActionForm):
 			id_dict = {}
 			self.feedback.value  = "Added Row. " + self.prim_key_list[0] + ": " + str(self.row_id)
 			self.feedback.color = 'SAFE'
+			# add 1 to row counter
+			self.parentApp.myGridSet.row_count = self.parentApp.myGridSet.row_count + 1
 			# reset textbox values
 			for col in self.parentApp.myGridSet.columns_list:
 				self.dict[col.name].value = ''
@@ -618,7 +678,9 @@ class AddRowForm(npyscreen.ActionForm):
 		self.limit = self.parentApp.myGridSet.limit
 		# update offset
 		new_offset = self.parentApp.myGridSet.offset + self.limit
-		self.parentApp.myGridSet.offset = new_offset
+		# not more than row count
+		if new_offset <= self.parentApp.myGridSet.row_count:
+			self.parentApp.myGridSet.offset = new_offset
 		self.offset = self.parentApp.myGridSet.offset
 		# update sorting order and column to sort on
 		self.sort_direction = self.parentApp.myGridSet.sort_direction
@@ -659,6 +721,37 @@ class AddRowForm(npyscreen.ActionForm):
 		# reset Grid
 		self.myGrid.values = []
 		# query rows from database to populate grid
+		self.fetch_rows()
+		for row in self.rows:
+			self.myGrid.values.append(row)
+		self.display()
+		
+	def redrawFirstPage(self):
+		self.limit = self.parentApp.myGridSet.limit
+		self.offset = 0
+		self.parentApp.myGridSet.offset = self.offset
+		self.sort_direction =  self.parentApp.myGridSet.sort_direction
+		self.sort_column = self.parentApp.myGridSet.sort_column
+		# when called with default settings
+		if self.sort_column == '':
+				self.sort_column = self.parentApp.myGridSet.columns_list[0].name
+		self.myGrid.values = []
+		self.fetch_rows()
+		for row in self.rows:
+			self.myGrid.values.append(row)
+		self.display()
+		
+	def redrawLastPage(self):
+		self.limit = self.parentApp.myGridSet.limit
+		page_count = int(floor(self.parentApp.myGridSet.row_count /self.limit))
+		self.offset = page_count * self.parentApp.myGridSet.limit
+		self.parentApp.myGridSet.offset = self.offset
+		self.sort_direction =  self.parentApp.myGridSet.sort_direction
+		self.sort_column = self.parentApp.myGridSet.sort_column
+		# when called with default settings
+		if self.sort_column == '':
+				self.sort_column = self.parentApp.myGridSet.columns_list[0].name
+		self.myGrid.values = []
 		self.fetch_rows()
 		for row in self.rows:
 			self.myGrid.values.append(row)
@@ -723,16 +816,24 @@ class EditRowForm(npyscreen.ActionForm):
 		#self.nextrely += 1
 		
 		# feedback textbox
-		self.feedback = self.add(npyscreen.MultiLineEdit, editable = False, hidden = True, name = ' ', relx = 15, begin_entry_at = 1, max_height=4)
+		self.feedback = self.add(npyscreen.MultiLineEdit, editable = False, hidden = False, name = ' ', relx = 15, begin_entry_at = 1, max_height=4)
 		self.nextrely += 1
 		
-		self.bn_prev = self.add(npyscreen.ButtonPress, name = "Prev", max_height=1, relx = 35)
+		self.bn_first_page = self.add(npyscreen.ButtonPress, name = "<< First", max_height=1, relx = 23)
+		self.bn_first_page.whenPressed = self.redrawFirstPage # button press handler
+		self.nextrely += -1 #widget stays at the same line 
+		
+		self.bn_prev = self.add(npyscreen.ButtonPress, name = "< Prev", max_height=1, relx = 35)
 		self.bn_prev.whenPressed = self.redrawPrev # button press handler
-		self.nextrely += -1 # 3d widget stays at the same line 
+		self.nextrely += -1 # widget stays at the same line 
 		
-		self.bn_next = self.add(npyscreen.ButtonPress, name = "Next", max_height=1, relx = 45)
+		self.bn_next = self.add(npyscreen.ButtonPress, name = "Next >", max_height=1, relx = 45)
 		self.bn_next.when_pressed_function = self.redrawNext # button press handler
-		self.nextrely += 1
+		self.nextrely += -1 # widget stays at the same line 
+		
+		self.bn_last_page = self.add(npyscreen.ButtonPress, name = "Last >>", max_height=1, relx = 55)
+		self.bn_last_page.whenPressed = self.redrawLastPage # button press handler
+		self.nextrely += 1 
 		
 		# create Grid widget
 		self.myGrid =  self.add(MyGrid, col_titles = [], select_whole_line = True)
@@ -764,7 +865,7 @@ class EditRowForm(npyscreen.ActionForm):
 		# set current values of the fields
 		self.row_num = self.parentApp.myGridSet.edit_cell[0]
 		for col, col_value in zip(self.parentApp.myGridSet.columns_list, self.parentApp.tabMenuF.myGrid.values[self.row_num]):
-			self.dict[col.name].value = str(col_value)
+			self.dict[col.name].value = str(col_value).rstrip(' ') # strip off white spaces
 	
 	def editRow(self):
 		col_dict = {} # dict containing changed columns
@@ -776,6 +877,9 @@ class EditRowForm(npyscreen.ActionForm):
 						col_dict[col.name] = self.parentApp.cast_string(str(col.type),  self.dict[col.name].value)
 					if col.name in self.prim_key_list:
 						where_dict[col.name] = col_value
+			#self.feedback.value = str(col_dict)
+			self.feedback.hidden = False
+			self.display()
 		# if edited from inside (self.myGrid) via calling edit_another_row(self)
 		else:
 			for col, col_value in zip(self.parentApp.myGridSet.columns_list, self.myGrid.values[self.row_num]):
@@ -783,6 +887,8 @@ class EditRowForm(npyscreen.ActionForm):
 						col_dict[col.name] = self.parentApp.cast_string(str(col.type),  self.dict[col.name].value)
 					if col.name in self.prim_key_list:
 						where_dict[col.name] = col_value
+
+		
 		# edit row
 		if self.parentApp.myGridSet.db_type == 'PostgreSQL':
 			row_id, isSuccess = self.parentApp.postgreDb.edit_record(self.parentApp.myGridSet.table, col_dict, where_dict)
@@ -841,7 +947,9 @@ class EditRowForm(npyscreen.ActionForm):
 		self.limit = self.parentApp.myGridSet.limit
 		# update offset
 		new_offset = self.parentApp.myGridSet.offset + self.limit
-		self.parentApp.myGridSet.offset = new_offset
+		# new offset <= row_count
+		if new_offset <= self.parentApp.myGridSet.row_count:
+			self.parentApp.myGridSet.offset = new_offset
 		self.offset = self.parentApp.myGridSet.offset
 		# update sorting order and column to sort on
 		self.sort_direction = self.parentApp.myGridSet.sort_direction
@@ -888,7 +996,38 @@ class EditRowForm(npyscreen.ActionForm):
 		for row in self.rows:
 			self.myGrid.values.append(row)
 		self.display()
-	
+		
+	def redrawFirstPage(self):
+		self.limit = self.parentApp.myGridSet.limit
+		self.offset = 0
+		self.parentApp.myGridSet.offset = self.offset
+		self.sort_direction =  self.parentApp.myGridSet.sort_direction
+		self.sort_column = self.parentApp.myGridSet.sort_column
+		# when called with default settings
+		if self.sort_column == '':
+				self.sort_column = self.parentApp.myGridSet.columns_list[0].name
+		self.myGrid.values = []
+		self.fetch_rows()
+		for row in self.rows:
+			self.myGrid.values.append(row)
+		self.display()
+		
+	def redrawLastPage(self):
+		self.limit = self.parentApp.myGridSet.limit
+		page_count = int(floor(self.parentApp.myGridSet.row_count /self.limit))
+		self.offset = page_count * self.parentApp.myGridSet.limit
+		self.parentApp.myGridSet.offset = self.offset
+		self.sort_direction =  self.parentApp.myGridSet.sort_direction
+		self.sort_column = self.parentApp.myGridSet.sort_column
+		# when called with default settings
+		if self.sort_column == '':
+				self.sort_column = self.parentApp.myGridSet.columns_list[0].name
+		self.myGrid.values = []
+		self.fetch_rows()
+		for row in self.rows:
+			self.myGrid.values.append(row)
+		self.display()
+		
 	def fetch_rows(self):
 		if self.parentApp.myGridSet.db_type == 'PostgreSQL':
 			self.rows = self.parentApp.postgreDb.list_records(self.parentApp.myGridSet.table, self.sort_column, self.sort_direction, self.offset, self.limit)
@@ -1021,13 +1160,13 @@ class MyApplication(npyscreen.NPSAppManaged):
 		if not string_val:
 			#self.addRowF.feedback.value = "None chosen"
 			return None
-		if data_type == 'text' or 'char':
-			return string_val
-		if data_type == 'smallint' or 'integer':
+		if data_type == "text" or data_type == "char" or data_type == "varchar":
+			value = string_val
+		elif data_type == 'smallint' or data_type == 'integer' or data_type == 'int':
 			value = int(string_val)
 		elif data_type == 'bigint' :
 			value = long(string_val)
-		elif data_type == 'real' or 'double':
+		elif data_type == 'real' or data_type == 'double':
 			value = float(string_val)
 		elif data_type == 'numeric':
 			value = Decimal(string_val)
@@ -1041,6 +1180,12 @@ class MyApplication(npyscreen.NPSAppManaged):
 			value = datetime.datetime.strptime(string_val, '%H:%M:%S').time()
 		elif data_type == 'datetime':
 			value = datetime.datetime.strptime(string_val, '%Y/%m/%d %H:%M:%S')
+		elif data_type == 'timestamp':
+			value = "TIMESTAMP " + string_val
+			#self.editRowF.feedback.value = "DataType = "+ data_type + " Value:" + value
+			#self.editRowF.feedback.hidden = False
+			#self.editRowF.display()
+		
 		return value
 		
 	def exit_application(self):

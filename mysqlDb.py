@@ -55,6 +55,12 @@ class MysqlDB(object):
 		# fetch list of primary keys	
 		columns_prim_tuple = cur.fetchall()
 		
+		#http://www.tocker.ca/2013/05/02/fastest-way-to-count-rows-in-a-table.html
+		#cur.execute("SELECT TABLE_ROWS FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = %s",  (table_name,))
+		cur.execute("SELECT COUNT(*) FROM {0}".format (table_name))
+		
+		row_count = cur.fetchone()
+		
 		cur.close()
 		
 		# traverese tuple of tuples to list of strings
@@ -82,7 +88,7 @@ class MysqlDB(object):
 			column.nullable = "NULL" if col[4] == "YES" else "NOT NULL"
 			columns_list.append(column)
 		
-		return columns_list
+		return columns_list, row_count[0]
 	
 	
 	def list_records(self, table_name, sort_column, sort_direction, offset, limit):
