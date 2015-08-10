@@ -11,7 +11,7 @@ import time
 from mysqlDb import MysqlDB
 from postgreDb import PostgreDB
 from column import Column
-from alchemyLib import Alchemy
+#from alchemyLib import Alchemy
 
 # time in sec of showing 
 # feedback message to a user
@@ -1103,9 +1103,8 @@ class MyApplication(npyscreen.NPSAppManaged):
 	edit_row_count = 0 # count number of calls to Edit Row Form
 	def onStart(self):
 		self.postgreDb = PostgreDB()
-		self.alchemy = Alchemy() # works well, but too slow
+		#self.alchemy = Alchemy() # works well, but too slow
 		self.myGridSet = GridSettings()
-		#self.selTableF = self.addForm('TableSelect', TableListDisplay, name='Select Table')
 		self.selDbF = self.addForm('MAIN', DBSelectForm, name = 'Select PostgreDB Engine')
 		self.selTableF = self.addForm('TableSelect', TableListDisplay, name='Select Table')
 		self.tabMenuF = self.addForm('Menu', TableMenuForm)
