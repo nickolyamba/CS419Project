@@ -16,8 +16,8 @@ class MysqlDB(object):
 	# connect to DB when application is started and DB object is initialized
 	def __init__ (self):
 		try:
-			self.db = MySQLdb.Connection(host="sql3.freesqldatabase.com", user="sql386176", 
-				passwd="yD1!wG7%", db="sql386176")
+			self.db = MySQLdb.Connection(host="sql3.freesqldatabase.com", user="sql386996", 
+				passwd="cJ1*lI6!", db="sql386996")
 		except MySQLdb.Error, ex:
 			print 'Error  %s' % ex
 			sys.exit(1)
@@ -28,7 +28,7 @@ class MysqlDB(object):
 		cur = self.db.cursor()
 		cur.execute("SELECT table_name FROM information_schema.tables \
 							WHERE \
-								table_type = 'base table' AND table_schema = 'sql386176' \
+								table_type = 'base table' AND table_schema = 'sql386996' \
 							ORDER BY table_name")
 		tables = cur.fetchall()
 		cur.close()

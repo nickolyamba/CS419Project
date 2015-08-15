@@ -72,6 +72,7 @@ class DBList(npyscreen.MultiLineAction):
 		if selection == 'MySQL':
 			self.parent.parentApp.myGridSet.db_type = 'MySQL'
 			self.parent.parentApp.switchForm('TableSelect')
+		
 		elif selection == 'PostgreSQL':
 			self.parent.parentApp.myGridSet.db_type = 'PostgreSQL'
 			self.parent.parentApp.switchForm('TableSelect')
@@ -581,6 +582,7 @@ class AddRowForm(npyscreen.ActionForm):
 		
 		# create Grid widget
 		self.myGrid =  self.add(MyGrid, col_titles = [], select_whole_line = True)
+		self.myGrid.default_column_number = 5
 		
 		# define return on prev form on Esc
 		self.how_exited_handers[npyscreen.wgwidget.EXITED_ESCAPE]  = self.exit_form
@@ -606,7 +608,7 @@ class AddRowForm(npyscreen.ActionForm):
 		# if user entered value primary key value
 		if self.dict[self.prim_key_list[0]].value:
 			for col in self.parentApp.myGridSet.columns_list:
-				value = self.parentApp.cast_string(str(col.type),  self.dict[col.name].value)
+				value = self.parentApp.cast_string(str(col.type),  self.dict[col.name].value, self)
 				if value != None or col.nullable != 'NULL':
 					col_dict[col.name] = value
 		# user doesn't enter value for primary key
@@ -614,7 +616,7 @@ class AddRowForm(npyscreen.ActionForm):
 		else:
 			for col in self.parentApp.myGridSet.columns_list:
 				if col.name != self.prim_key_list[0]:
-					value = self.parentApp.cast_string(col.type,  self.dict[col.name].value)
+					value = self.parentApp.cast_string(col.type,  self.dict[col.name].value, self)
 					if value != None or col.nullable != 'NULL':
 						col_dict[col.name] = value
 		#self.feedback.value = str(col_dict)
@@ -837,6 +839,7 @@ class EditRowForm(npyscreen.ActionForm):
 		
 		# create Grid widget
 		self.myGrid =  self.add(MyGrid, col_titles = [], select_whole_line = True)
+		self.myGrid.default_column_number = 5
 		self.myGrid.add_handlers({curses.ascii.LF : self.edit_another_row})
 		
 		# define return on prev form on Esc
@@ -847,7 +850,7 @@ class EditRowForm(npyscreen.ActionForm):
 		# set current values of the fields
 		self.row_num = self.myGrid.edit_cell[0]
 		for col, col_value in zip(self.parentApp.myGridSet.columns_list, self.myGrid.values[self.row_num]):
-			self.dict[col.name].value = str(col_value)
+			self.dict[col.name].value = str(col_value).rstrip(' ')
 		self.display()
 	
 	def beforeEditing(self):
@@ -865,7 +868,7 @@ class EditRowForm(npyscreen.ActionForm):
 		# set current values of the fields
 		self.row_num = self.parentApp.myGridSet.edit_cell[0]
 		for col, col_value in zip(self.parentApp.myGridSet.columns_list, self.parentApp.tabMenuF.myGrid.values[self.row_num]):
-			self.dict[col.name].value = str(col_value).rstrip(' ') # strip off white spaces
+			self.dict[col.name].value = (str(col_value)).rstrip(' ') # strip off white spaces
 	
 	def editRow(self):
 		col_dict = {} # dict containing changed columns
@@ -874,7 +877,7 @@ class EditRowForm(npyscreen.ActionForm):
 		if not self.edit_from_self:
 			for col, col_value in zip(self.parentApp.myGridSet.columns_list, self.parentApp.tabMenuF.myGrid.values[self.row_num]):
 					if self.dict[col.name].value != str(col_value):
-						col_dict[col.name] = self.parentApp.cast_string(str(col.type),  self.dict[col.name].value)
+						col_dict[col.name] = self.parentApp.cast_string(str(col.type),  self.dict[col.name].value, self)
 					if col.name in self.prim_key_list:
 						where_dict[col.name] = col_value
 			#self.feedback.value = str(col_dict)
@@ -884,7 +887,7 @@ class EditRowForm(npyscreen.ActionForm):
 		else:
 			for col, col_value in zip(self.parentApp.myGridSet.columns_list, self.myGrid.values[self.row_num]):
 					if self.dict[col.name].value != str(col_value):
-						col_dict[col.name] = self.parentApp.cast_string(str(col.type),  self.dict[col.name].value)
+						col_dict[col.name] = self.parentApp.cast_string(str(col.type),  self.dict[col.name].value, self)
 					if col.name in self.prim_key_list:
 						where_dict[col.name] = col_value
 
@@ -1136,9 +1139,11 @@ class MyApplication(npyscreen.NPSAppManaged):
 				del self.editRowF
 			self.editRowF = self.addForm('Edit Row', EditRowForm, name='Edit Row')
 		
+		
 		elif self.NEXT_ACTIVE_FORM == 'TableSelect':
 			if self.myGridSet.db_type == 'MySQL':
 				self.mySQLDb = MysqlDB()
+		
 			
 		'''
 		elif self.NEXT_ACTIVE_FORM == 'Menu':
@@ -1154,27 +1159,52 @@ class MyApplication(npyscreen.NPSAppManaged):
 	Purpose:  # Cast Python string to corresponding to DB type Python data type
 	***************************************************************************'''			
 	# http://www.psycopg.org/psycopg/docs/usage.html#adaptation-of-python-values-to-sql-types
-	def cast_string(self, data_type, string_val):
+	def cast_string(self, data_type, string_val, calling_obj):
 		value = None
 		if not string_val:
 			#self.addRowF.feedback.value = "None chosen"
 			return None
-		if data_type == "text" or data_type == "char" or data_type == "varchar":
+		if data_type == "text" or data_type == "char" or data_type == "varchar" or data_type == "character":
 			value = string_val
 		elif data_type == 'smallint' or data_type == 'integer' or data_type == 'int':
-			value = int(string_val)
+			try:
+				value = int(string_val)
+			except ValueError, error:
+				self.send_feedback(error, calling_obj)
+				return string_val
 		elif data_type == 'bigint' :
-			value = long(string_val)
+			try:
+				value = long(string_val)
+			except ValueError, error:
+				self.send_feedback(error, calling_obj)
+				return string_val
 		elif data_type == 'real' or data_type == 'double':
-			value = float(string_val)
+			try:
+				value = float(string_val)
+			except ValueError, error:
+				self.send_feedback(error, calling_obj)
+				return string_val
 		elif data_type == 'numeric':
-			value = Decimal(string_val)
+			try:
+				value = Decimal(string_val)
+			except ValueError, error:
+				self.send_feedback(error, calling_obj)
+				return string_val
 		elif data_type == 'bool':
-			value = True if string_val == 'True' else False
+			if string_val == 'True':
+				value = True
+			elif string_val == 'False':
+				value = False
+			else:
+				return string_val
 		elif data_type == 'bytea':
-			value = buffer(string_val)
+			try:
+				value = buffer(string_val)
+			except ValueError, error:
+				self.send_feedback(error)
+				return string_val
 		elif data_type == 'date':
-			value = datetime.datetime.strptime(string_val, "%m/%d/%Y").date()
+				value = datetime.datetime.strptime(string_val, "%m/%d/%Y").date()
 		elif data_type == 'time':
 			value = datetime.datetime.strptime(string_val, '%H:%M:%S').time()
 		elif data_type == 'datetime':
@@ -1186,6 +1216,11 @@ class MyApplication(npyscreen.NPSAppManaged):
 			#self.editRowF.display()
 		
 		return value
+
+	def send_feedback(self, error_mess, calling_obj):
+		calling_obj.feedback.value = str(error_mess)
+		calling_obj.feedback.hidden = False
+		calling_obj.display()
 		
 	def exit_application(self):
 		self.switchForm(None)

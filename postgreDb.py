@@ -14,13 +14,14 @@ from column import Column
 * Purpose:  Connect to the database and query it
 **************************************************'''
 class PostgreDB(object):
-	def __init__ (self):
-		try:
-			self.conn = psycopg2.connect("dbname='muepyavy' user='muepyavy' host='babar.elephantsql.com' password='EQoh7fJJNxK-4ag4SNUIYwzzWqTVzj-8'")
-		except psycopg2.DatabaseError, e:
-			self.conn.rollback()
-			print 'Error %s' % e
-			sys.exit(1)
+	def __init__ (self):	
+		#self.conn
+		#try:
+		self.conn = psycopg2.connect(database='muepyavy', user='muepyavy', host='babar.elephantsql.com', password='EQoh7fJJNxK-4ag4SNUIYwzzWqTVzj-8')
+		#except psycopg2.DatabaseError, e:
+		#	#self.conn.rollback()
+		#	print 'Error %s' % e
+		#	#sys.exit(1)
 	
 	
 	# returns list of all tables in the database	

@@ -3,7 +3,7 @@
 '''*********************************************************
 Class Column inherits object
 
-Purpose:  Save a column properties to used in the program
+Purpose:  Stores a column properties to used in the program
 *********************************************************'''
 class Column(object):
 	def __init__ (self):
