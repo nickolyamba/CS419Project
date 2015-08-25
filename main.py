@@ -308,8 +308,8 @@ class TableMenuForm(npyscreen.ActionFormV2WithMenus):
 			self.feedback.hidden = False
 			self.display()
 			# set times to hide the feedback
-			t = Timer(FEEDBACK_TIMEOUT, self.hideFeedback)
-			t.start()
+			self.timer = Timer(FEEDBACK_TIMEOUT, self.hideFeedback)
+			self.timer.start()
 			
 	def update_grid(self):
 		# reset Grid
